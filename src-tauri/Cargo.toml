@@ -1,0 +1,40 @@
+[package]
+name = "streamgpt-local"
+version = "0.1.0"
+description = "A local LG webOS and Roku controller with MCP"
+authors = ["Aaron Tomlinson"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.85"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sha2 = "0.10"
+quick-xml = { version = "0.37", features = ["serialize"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+aes-gcm = "0.10"
+base64 = "0.22"
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+directories = "6"
+axum = "0.8"
+subtle = "2"
+if-addrs = "0.13"
+url = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

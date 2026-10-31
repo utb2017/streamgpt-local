@@ -1,0 +1,43 @@
+{
+  "name": "streamgpt-local",
+  "productName": "StreamGPT Local",
+  "version": "0.1.0",
+  "description": "A monochrome desktop remote and local MCP bridge for LG webOS and Roku.",
+  "author": "Aaron Tomlinson",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/utb2017/streamgpt-local.git"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "preview": "vite --host 127.0.0.1",
+    "dist": "tauri build",
+    "test:mcp": "node scripts/mcp-smoke.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "test:desktop": "node scripts/desktop-smoke.mjs",
+    "format": "prettier --write src scripts *.json *.ts && cargo fmt --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "lucide-react": "^0.468.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "playwright": "^1.56.1",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "vite": "7.3.7",
+    "zod": "^4.6.7"
+  }
+}

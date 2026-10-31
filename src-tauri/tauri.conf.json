@@ -1,0 +1,9 @@
+{
+  "$schema":"https://schema.tauri.app/config/2",
+  "productName":"StreamGPT Local",
+  "version":"0.1.0",
+  "identifier":"dev.streamgpt.local",
+  "build":{"beforeDevCommand":"npm run preview","devUrl":"http://localhost:5198","beforeBuildCommand":"npm run build","frontendDist":"../dist/ui"},
+  "app":{"windows":[{"label":"main","title":"StreamGPT Local","width":1340,"height":930,"minWidth":940,"minHeight":700,"backgroundColor":"#080808"}],"security":{"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"}},
+  "bundle":{"active":true,"targets":["nsis"],"icon":["icons/icon.ico"],"shortDescription":"Your screens. One local remote.","category":"Utility","windows":{"nsis":{"installMode":"currentUser","displayLanguageSelector":false},"webviewInstallMode":{"type":"downloadBootstrapper"}}}
+}

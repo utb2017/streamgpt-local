@@ -1,0 +1,1 @@
+{"identifier":"main","description":"Local main-window controller access only","windows":["main"],"permissions":["core:default","allow-controller"]}
