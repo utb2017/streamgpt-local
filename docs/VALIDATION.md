@@ -1,5 +1,9 @@
 # Release validation
 
+## 0.1.1 setup clarification
+
+The setup dialog now distinguishes the Roku's on-TV settings from the PC app, explains Ethernet/Wi-Fi connectivity, and states the separate Add device and Connect this TV steps. Roku connection progress no longer asks the user to wait for an LG approval prompt. The production UI build and the browser fixture flow passed, including manual Roku enrollment with no command dispatch.
+
 Version 0.1.0 was checked on Windows x64 on October 31, 2026.
 
 | Check | Result |

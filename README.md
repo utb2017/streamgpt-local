@@ -22,8 +22,8 @@ StreamGPT Local connects an approved desktop AI client or its own visual remote 
 
 1. Download the Windows installer from [Releases](https://github.com/utb2017/streamgpt-local/releases/latest). This preview is not code-signed; Windows may show an unknown-publisher warning. Check the published SHA-256 before installing.
 2. Open StreamGPT Local. Keep the computer and TV on the same home network. Ethernet and Wi-Fi both work when the router permits them to communicate.
-3. Choose **Add a device → Find nearby TVs**, or enter the TV's private IP address from its Network settings.
-4. Select **Connect this TV**. On LG, approve the prompt on the television. On Roku, enable **Settings → System → Advanced system settings → Control by mobile apps** as required by the device's OS.
+3. Choose **Add a device**. Click **Find nearby TVs** and select a result, or choose **TV type** (LG webOS or Roku) and enter **Local IP address**. On Roku, find the IP under **Settings → Network → About**. Click **Add device** to save it.
+4. Back on the remote screen, click **Connect this TV**. On LG, approve the prompt on the television. Roku checks the network connection without an LG-style approval prompt; enable **Control by mobile apps** in Roku settings as required by the device's OS.
 5. Use the remote, or open **Connect AI** and copy the generated MCP configuration into a desktop client that supports local stdio servers.
 
 The app must remain open and the computer awake. No router port forwarding, vendor account password or paid cloud service is required for local operation. Power-on from standby, arbitrary app launching and media streaming are not included.

@@ -35,6 +35,7 @@ try {
           return structuredClone(data);
         }
         if (input.op === "pair") {
+          await new Promise((resolve) => setTimeout(resolve, 250));
           data.devices[0].paired = true;
           data.devices[0].reachable = true;
           return { snapshot: structuredClone(data) };
@@ -73,6 +74,22 @@ try {
   assert.match(calls.at(-1).requestId, /^[0-9a-f-]{36}$/);
   await page.getByRole("button", { name: "Connect AI", exact: true }).click();
   await page.getByText("synthetic MCP config", { exact: true }).waitFor();
+  // The manual Roku path must not inherit LG approval instructions.
+  await page.reload();
+  await page.getByRole("button", { name: "Add a device", exact: true }).click();
+  await page.getByLabel("TV type").selectOption("roku");
+  await page.getByText(/On your Roku, open Settings/).waitFor();
+  await page.getByLabel("Local IP address").fill("192.168.1.20");
+  await page.getByRole("button", { name: "Add device", exact: true }).click();
+  await page.getByRole("button", { name: "Connect this TV" }).click();
+  await page
+    .getByRole("button", { name: "Checking Roku connection…" })
+    .waitFor();
+  assert.equal(await page.getByText(/Waiting for LG approval/).count(), 0);
+  await page.getByText("Connected. Your remote is ready.").waitFor();
+  const rokuCalls = await page.evaluate(() => window.__testCalls);
+  assert.equal(rokuCalls.find((c) => c.op === "add").brand, "roku");
+  assert.equal(rokuCalls.filter((c) => c.op === "press").length, 0);
   assert.deepEqual(errors, []);
   console.log(
     "UI: discovery, add, approval gate, one button request and MCP configuration passed with fixtures.",

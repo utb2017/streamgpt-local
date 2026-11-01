@@ -36,7 +36,7 @@ import type { Snapshot, Device, Input, Candidate, Button } from "../shared";
 import "./style.css";
 const demo = new URLSearchParams(location.search).get("demo") === "1";
 const sample: Snapshot = {
-  version: "0.1.0",
+  version: "0.1.1",
   cloud: "not_connected",
   mcpConfig: JSON.stringify(
     {
@@ -70,7 +70,7 @@ const sample: Snapshot = {
   ],
 };
 const blank: Snapshot = {
-  version: "0.1.0",
+  version: "0.1.1",
   cloud: "not_connected",
   mcpConfig: "",
   receipts: [],
@@ -98,7 +98,9 @@ function App() {
     setBusy(input.op);
     setNotice(
       input.op === "pair"
-        ? "Look at your TV and approve the connection request."
+        ? data.devices.find((d) => d.id === input.deviceId)?.brand === "roku"
+          ? "Checking your Roku over the home network. No on-screen pairing prompt is expected."
+          : "Look at your LG TV and approve the connection request."
         : "",
     );
     try {
@@ -116,7 +118,9 @@ function App() {
       if (input.op === "add") {
         setModal(false);
         setSelected(value.devices.at(-1)?.id);
-        setNotice("Device saved. Connect it to approve access.");
+        setNotice(
+          'Device saved. Click "Connect this TV" to check the connection.',
+        );
       }
       if (input.op === "pair") setNotice("Connected. Your remote is ready.");
       if (value?.receipt) setNotice(value.receipt.message);
@@ -413,7 +417,9 @@ function App() {
                             <Radio size={16} />
                           )}{" "}
                           {busy === "pair"
-                            ? "Waiting for TV approval…"
+                            ? device.brand === "roku"
+                              ? "Checking Roku connection…"
+                              : "Waiting for LG approval…"
                             : "Connect this TV"}
                         </button>
                       )}
@@ -700,10 +706,14 @@ function App() {
               <X size={20} />
             </button>
             <div className="eyebrow">A LITTLE CLOSER</div>
-            <h2 id="add-title">Bring your TV home.</h2>
+            <h2 id="add-title">Add a device</h2>
             <p>
               Turn on your TV and connect it to the same network as this
               computer.
+            </p>
+            <p>
+              Your PC can stay on Ethernet while your TV uses Wi-Fi on the same
+              router. Avoid a guest network.
             </p>
             <button
               className="secondary wide"
@@ -777,9 +787,15 @@ function App() {
                 />
               </label>
               <small className="form-help">
-                Find the IP in your TV’s Network settings. LG will ask you to
-                approve pairing. For Roku, enable Control by mobile apps.
+                {brand === "roku"
+                  ? "On your Roku, open Settings → Network → About to find its IP address. Network control must be enabled in the Roku settings (Control by mobile apps). Roku does not use the LG on-screen approval prompt."
+                  : "Find the IP in your LG TV’s Network settings. When you connect, approve the request on your LG TV."}
               </small>
+              <p className="form-help">
+                Choose your TV type and enter its IP, or select a result from
+                Find nearby TVs. Click Add device here, then Connect this TV on
+                the remote screen.
+              </p>
               <button className="primary wide" disabled={!!busy}>
                 Add device <ArrowRight size={17} />
               </button>
