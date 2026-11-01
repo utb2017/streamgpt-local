@@ -8,12 +8,13 @@
 
 ## A remote that belongs in your living room
 
-StreamGPT Local connects an approved desktop AI client or its own visual remote to TVs on your home network. The native Rust process handles device discovery, pairing, storage and commands. The interface uses the operating system's webview instead of shipping Chromium or Node.js.
+StreamGPT Local is a Rust companion for the [StreamGPT](https://streamgpt.dev) TV remote. Link your account to bring local Roku and LG TVs into the same remote as your existing Samsung connection, including authenticated ChatGPT control. The native process handles discovery, pairing, encrypted storage and commands. Tauri uses the operating system's webview instead of shipping Chromium or Node.js.
 
 - **Find your screens.** SSDP discovery on private IPv4 interfaces, with manual IP entry when discovery is blocked.
 - **Approve access.** LG pairing happens on the TV. Roku requires network control enabled in its settings.
 - **Keep control local.** Pairing credentials and the command journal are encrypted using a key held by the OS credential store.
-- **Connect your AI.** Built-in stdio MCP exposes four focused tools, including discovery so your AI can find TVs without asking for an IP address. Enrollment and removal stay in the desktop app.
+- **Watch the connection.** An explicit Connection agent panel shows candidates, pairing requests and actual activity. Choosing a TV and connecting it are separate steps; successful pairing is followed by a read-only status check.
+- **Connect your AI.** The account-linked assistant reuses StreamGPT's resident agent. Buttons work without inference. Built-in stdio MCP also exposes four focused tools for desktop clients.
 - **Know what happened.** Durable request IDs prevent duplicate delivery. Missing acknowledgements remain uncertain; commands are never automatically retried.
 
 **Early preview:** discovery, enrollment and status were verified on a Roku Express running OS 16.0.4. Real remote-button effects and LG hardware compatibility remain untested. Protocol and security checks also use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
@@ -22,9 +23,11 @@ StreamGPT Local connects an approved desktop AI client or its own visual remote 
 
 1. Download the Windows installer from [Releases](https://github.com/utb2017/streamgpt-local/releases/latest). This preview is not code-signed; Windows may show an unknown-publisher warning. Check the published SHA-256 before installing.
 2. Open StreamGPT Local. Keep the computer and TV on the same home network. Ethernet and Wi-Fi both work when the router permits them to communicate.
-3. Choose **Add a device**. The app automatically searches; select your TV by name to save it. If nothing answers, use **Search again** or expand **Can’t find it? Connection help** for instructions and optional manual entry. An IP address is only a fallback.
-4. Back on the remote screen, click **Connect this TV**. On LG, approve the prompt on the television. Roku checks the network connection without an LG-style approval prompt; enable **Control by mobile apps** in Roku settings as required by the device's OS.
-5. Use the remote, or open **Connect AI** and copy the generated MCP configuration into a desktop client that supports local stdio servers.
+3. Open **Connection agent**, choose **Link account**, then **Open browser**. Sign in to the same StreamGPT account you use in ChatGPT, compare the displayed code and approve this computer.
+4. Back in the app, click **Find TVs**. Choose a named candidate and confirm **Connect TV**. On LG, approve the prompt on the physical TV if it appears. Roku checks network control without an LG-style approval prompt.
+5. Wait for the status result, then open **Remote**. Pairing alone is not treated as verified status, and no button is sent as an automatic test.
+
+For standalone local control, skip account linking and use the explicitly labeled local-only controller. Manual network-address entry remains under **Connection help**. Desktop AI clients can use the separate **Desktop MCP** page.
 
 The app must remain open and the computer awake. No router port forwarding, vendor account password or paid cloud service is required for local operation. Power-on from standby, arbitrary app launching and media streaming are not included.
 
@@ -41,7 +44,9 @@ The executable supports `--mcp`. The app generates the correct executable path f
 
 The MCP child process connects to an authenticated loopback endpoint owned by the running desktop app. It can discover devices, but cannot enroll, pair or forget them. Pairing keys are never returned in tool output. AI clients can use discovery to guide setup; this desktop app does not run a separate language model.
 
-**ChatGPT on your phone:** this release is a local controller and desktop MCP companion. It does not connect to the hosted StreamGPT phone app. That requires a separate authenticated outbound cloud relay. The working Samsung/SmartThings cloud integration is a different project and remains untouched.
+**ChatGPT on your phone:** link this helper to the same StreamGPT account connected in ChatGPT. The PC must remain awake, connected to the TV's network and running the helper; closing its window keeps it in the system tray. **Quit** in the tray stops the helper. Only outbound HTTPS/WSS is used, with expiring credentials and no router forwarding. Existing Samsung grants are preserved. Phone ChatGPT does not scan your LAN itself.
+
+**iPhone companion:** the shared Rust/mobile source, permissions template and build instructions are prepared. Mac/Xcode signing and physical-device testing are still required; no iOS download is offered yet. See [the iOS handoff](docs/IOS.md). Do not rely on the phone app remaining a bridge while iOS suspends it.
 
 ## Development
 
@@ -55,6 +60,7 @@ npm run dev
 ```sh
 npm run typecheck
 npm run build
+npm run test:ui-model
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 npm run dist

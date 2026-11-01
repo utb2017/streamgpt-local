@@ -4,6 +4,10 @@
 flowchart LR
   UI[React interface] -->|Tauri command| C[Rust controller]
   AI[Desktop MCP client] -->|stdio| M[Executable --mcp]
+  GPT[ChatGPT remote] -->|Authenticated MCP| Cloud[StreamGPT Cloudflare server]
+  UI -->|Native HTTPS actions / assistant| Cloud
+  Cloud <-->|Authenticated outbound WSS| Helper[Rust helper]
+  Helper --> C
   M -->|Bearer token / loopback only| C
   C --> V[Encrypted vault + command journal]
   C -->|SSAP / WebSocket| LG[LG webOS]
@@ -12,7 +16,7 @@ flowchart LR
 
 ## Process and trust boundaries
 
-Tauri hosts the React interface in the system webview. One explicit Rust command accepts a strictly typed operation. A capability grants this command only to the local main window. There is no arbitrary shell execution or frontend HTTP client.
+Tauri hosts the React interface in the system webview. The local controller and cloud_command interfaces are available only to the local main window. Rust makes fixed-origin cloud requests; the renderer never receives helper tokens. There is no arbitrary shell execution or frontend HTTP client.
 
 The application owns a random-port HTTP listener on `127.0.0.1`, with a fresh 256-bit bearer token each launch. It rejects browser Origin headers, unexpected Host headers and incorrect tokens. The token and port are encrypted in the current user's application data. The `--mcp` subprocess retrieves them through the OS credential store; it does not receive a token in the command line or generated configuration. The local endpoint allows only snapshot, discovery, status and button requests. Device enrollment, pairing and removal remain in the desktop UI.
 
@@ -26,12 +30,20 @@ All controller work uses one asynchronous mutex. Button requests require a UUID.
 
 Discovery sends SSDP searches on private IPv4 network interfaces and listens for a short bounded interval. It uses the response's source address, not an arbitrary LOCATION URL. Discovery is advisory; users choose which addresses to save and approve.
 
-Opening Add a device starts discovery. The UI presents names first, with manual address entry behind Connection help. Discovery reads identity from at most 16 Roku responders using the fixed ECP endpoint, with a 1.5-second timeout for concurrent enrichment. Device names are untrusted display data. The `discover_tvs` MCP tool lets an existing AI guide this same workflow; there is no separate model or paid inference service inside the desktop app.
+Opening the app or Connection agent does not start discovery. Find TVs is an explicit action; the UI presents names first, with manual address entry behind Connection help. Discovery reads identity from at most 16 Roku responders using the fixed ECP endpoint, with a 1.5-second timeout for concurrent enrichment. Device names are untrusted display data. The `discover_tvs` MCP tool lets an existing AI guide this same workflow; there is no separate model or paid inference service inside the desktop app.
 
 Roku uses a fixed port and allowlisted ECP paths. HTTP redirects, proxies, oversized responses and XML entity declarations are rejected. Play and pause both map to Roku's playback toggle. Volume and power support vary between Roku TVs and streaming players.
 
 LG uses SSAP registration with an unsigned, narrowly scoped permission manifest and on-TV approval. The first approved TLS connection pins the certificate; subsequent sessions require the same certificate. Secure connection failures caused by a refused connection or timeout may fall back to port 3000 only on a first pairing. TLS validation failures do not trigger plaintext fallback. Legacy plaintext pairing must be used only on a trusted network. The input socket must point to the same TV, scheme and expected port. LG pointer-button delivery has no response acknowledgement and is reported as uncertain even after a successful send.
 
-## Intentionally separate
+## Account-linked helper
 
-The hosted StreamGPT/SmartThings app and this local controller have separate source, runtime, data and deployment. This release does not add a cloud relay. A future relay must provide user-approved device enrollment, expiring credentials, authenticated outbound connections, revocation, bounded command schemas and the same durable request journal. It must never expose the TV's port directly to the internet.
+The hosted server and native application retain separate repositories, runtimes and storage. Version 0.2 adds an explicit account link: the native app obtains a ten-minute link code, the user signs in and approves in the system browser, and the helper claims a thirty-day credential into its encrypted vault. HTTPS and WSS target only streamgpt.dev. No router forwarding or inbound public listener is needed.
+
+The cloud merges existing Samsung grants with each account's approved helper inventory. Native snapshot/action wrappers use existing domain validation, so deterministic buttons do not require inference. The assistant uses the existing StreamGPT resident. Discovery returns opaque candidates bound to local addresses in native memory; selecting and connecting one is a separate explicit action. Expired candidates must be rediscovered. Inventory and candidate responses are bounded at 32 entries. LAN addresses and LG keys are not sent to the cloud.
+
+Every valid native operation records started and terminal events in a bounded in-memory activity list. Cloud domain activity is separate and account-scoped. These logs describe tool execution, not hidden model reasoning or proof of visible TV effects. Post-connect read verification is separate from saved/pair state. No test button is sent automatically.
+
+Socket hello/inventory heartbeats run every 20 seconds; both ends expire stale connections. Reconnection never replays buttons or queues offline actions. The native durable button journal remains the final duplicate barrier. Disconnecting locally removes the credential and stops sharing; account setup can revoke the server listing. On Windows, closing the window leaves the helper in the tray; Quit disconnects it.
+
+See [iOS preparation](IOS.md) for the shared mobile entry point, Mac build path and foreground-operation limits. The phone app does not provide an always-on background bridge while ChatGPT is foreground.

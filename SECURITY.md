@@ -6,4 +6,8 @@ The supported trust boundary is a single OS user on a trusted home network. Malw
 
 The release has not undergone an independent security audit. LG first-use certificate trust relies on the user approving the correct physical TV. Older LG plaintext WebSockets and Roku HTTP are not confidential against other devices on the LAN. Use an isolated trusted home network. Never forward TV control ports through a router.
 
-No telemetry is implemented. A cloud relay is not enabled. The app stores local encrypted device state and command receipts and makes network requests only for requested discovery, pairing, status and control.
+No analytics telemetry is implemented. Optional account linking connects the native helper to https://streamgpt.dev over authenticated outbound HTTPS/WSS. The cloud receives bounded approved-device inventory, opaque discovery candidates, allowlisted status fields and command outcomes. It does not receive local addresses or LG pairing keys. Native bearer credentials remain encrypted at rest and are never exposed to the renderer, URL query, MCP configuration or activity logs.
+
+Linking requires an explicit browser approval tied to the signed-in account and displayed code. Tokens expire and are revocable; reconnection never replays commands. Snapshot/action/assistant requests resolve account authority on the server. Local pairing candidates expire and cannot supply arbitrary URLs. The renderer can open only the fixed account/setup site or its validated pending approval URL through native commands.
+
+The helper sends inventory/liveness traffic once linked, including while its desktop window is hidden in the tray. It does not start TV discovery or pairing merely because the app opens. Quit the tray application or disconnect its account link to stop sharing. iOS background suspension is not bypassed; the server must mark a suspended helper unavailable.

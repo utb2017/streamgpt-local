@@ -1,7 +1,8 @@
 fn main() {
     tauri_build::try_build(
-        tauri_build::Attributes::new()
-            .app_manifest(tauri_build::AppManifest::new().commands(&["controller"])),
+        tauri_build::Attributes::new().app_manifest(
+            tauri_build::AppManifest::new().commands(&["controller", "cloud_command"]),
+        ),
     )
     .expect("Tauri build configuration");
 }

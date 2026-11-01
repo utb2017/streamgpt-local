@@ -8,6 +8,10 @@ pub struct Vault {
     key: [u8; 32],
 }
 impl Vault {
+    #[cfg(test)]
+    pub fn isolated_test(dir: PathBuf) -> Self {
+        Self { dir, key: [7; 32] }
+    }
     pub fn open() -> Result<Self, String> {
         let dir = directories::ProjectDirs::from("dev", "streamgpt", "StreamGPT Local")
             .ok_or("Application directory unavailable.")?

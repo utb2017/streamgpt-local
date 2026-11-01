@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import path from "node:path";
+import fs from "node:fs/promises";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -34,9 +35,9 @@ try {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
   const page = browser.contexts()[0].pages()[0];
   await page
-    .getByRole("heading", { name: "Every screen. One place." })
+    .getByRole("heading", { name: "Your remote." })
     .waitFor();
-  await page.getByRole("button", { name: "Connect AI", exact: true }).click();
+  await page.getByRole("button", { name: "Desktop MCP", exact: true }).click();
   await page.locator("pre").filter({ hasText: "mcpServers" }).waitFor();
   assert.ok((await page.locator("pre").innerText()).includes("--mcp"));
   client = new Client({ name: "native-readonly-smoke", version: "1" });
@@ -52,13 +53,27 @@ try {
   const value = JSON.parse(response.content[0].text);
   assert.ok(Array.isArray(value.devices));
   assert.equal("keys" in value, false);
-  await page
-    .getByRole("button", { name: /Devices/ })
-    .first()
-    .click();
-  await page.screenshot({ path: "docs/native-window.png", fullPage: true });
+  const before = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('cloud_command', {input:{op:'status'}}));
+  assert.ok(['not_connected','pending','offline','connected'].includes(before.status));
+  assert.equal('token' in before,false);
+  await page.getByRole('button',{name:'Connection agent',exact:true}).first().click();
+  await page.getByRole('heading',{name:'Connect with clarity.'}).waitFor();
+  const after = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('cloud_command', {input:{op:'status'}}));
+  assert.deepEqual(after.activity,before.activity,'Opening the agent dispatched native work');
+  await fs.mkdir('.local',{recursive:true});
+  await page.screenshot({ path: ".local/native-window.png", fullPage: true });
+  execFileSync('powershell.exe',['-NoProfile','-Command',`
+    $owned = Get-Process -Id ([int]$env:STREAMGPT_SMOKE_PID)
+    if ($owned.Path -ne [IO.Path]::GetFullPath($env:STREAMGPT_SMOKE_EXE)) { throw 'Unexpected native test process' }
+    Add-Type -Namespace StreamGPTSmoke -Name Window -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr hWnd, uint msg, System.IntPtr w, System.IntPtr l);'
+    if (-not [StreamGPTSmoke.Window]::PostMessage($owned.MainWindowHandle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)) { throw 'Could not close owned test window' }
+  `],{windowsHide:true,env:{...process.env,STREAMGPT_SMOKE_PID:String(processHandle.pid),STREAMGPT_SMOKE_EXE:exe},stdio:'pipe'});
+  await new Promise(resolve=>setTimeout(resolve,500));
+  assert.equal(processHandle.exitCode,null,'Closing the window exited the helper');
+  const hiddenResult=await client.callTool({name:'list_tvs',arguments:{}});
+  assert.notEqual(hiddenResult.isError,true,'Tray helper stopped serving read-only MCP');
   console.log(
-    "Native desktop: WebView2 rendered; Rust IPC returned config; OS vault and authenticated MCP snapshot passed. No TV calls.",
+    "Native desktop: WebView2, Rust cloud/controller IPC, idle Connection agent, OS vault, authenticated MCP and close-to-tray passed. No TV calls.",
   );
 } finally {
   await client?.close();
