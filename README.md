@@ -1,33 +1,36 @@
 <p align="center"><img src="src-tauri/icons/icon.png" width="76" alt="StreamGPT Local icon" /></p>
 <h1 align="center">StreamGPT Local</h1>
 <p align="center">Every screen. One place.</p>
-<p align="center">A monochrome desktop remote and local MCP companion for LG webOS and Roku.<br/>Built with Rust, Tauri 2, React and TypeScript.</p>
+<p align="center">Bring LG webOS and Roku TVs into your StreamGPT remote in ChatGPT.<br/>Built with Rust, Tauri 2, React and TypeScript.</p>
 <p align="center"><a href="https://github.com/utb2017/streamgpt-local/releases/latest">Download for Windows</a> · <a href="docs/ARCHITECTURE.md">Architecture</a> · <a href="docs/COMPATIBILITY.md">Compatibility</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
 ![StreamGPT Local desktop interface. Preview uses explicitly labeled sample devices.](docs/preview.png)
 
-## A remote that belongs in your living room
+## Your TVs, within reach
 
-StreamGPT Local is a Rust companion for the [StreamGPT](https://streamgpt.dev) TV remote. Link your account to bring local Roku and LG TVs into the same remote as your existing Samsung connection, including authenticated ChatGPT control. The native process handles discovery, pairing, encrypted storage and commands. Tauri uses the operating system's webview instead of shipping Chromium or Node.js.
+StreamGPT Local is a Rust companion for the [StreamGPT](https://streamgpt.dev) TV remote. Link your account to bring local Roku and LG TVs into the same remote as your existing Samsung connection, including authenticated ChatGPT control. Use the guided Add a TV flow on your computer, then control connected TVs from ChatGPT on your phone. The native process handles discovery, pairing, encrypted storage and commands. Tauri uses the operating system's webview instead of shipping Chromium or Node.js.
 
-- **Find your screens.** SSDP discovery on private IPv4 interfaces, with manual IP entry when discovery is blocked.
+- **Find your screens.** Bounded SSDP discovery on private IPv4 interfaces, with manual address entry available in setup help.
 - **Approve access.** LG pairing happens on the TV. Roku requires network control enabled in its settings.
 - **Keep control local.** Pairing credentials and the command journal are encrypted using a key held by the OS credential store.
-- **Watch the connection.** An explicit Connection agent panel shows candidates, pairing requests and actual activity. Choosing a TV and connecting it are separate steps; successful pairing is followed by a read-only status check.
+- **Follow the setup.** One Add a TV flow shows candidates, connection requests and actual activity. Choosing a TV and connecting it are separate steps; successful pairing is followed by a read-only status check.
 - **Connect your AI.** The account-linked assistant reuses StreamGPT's resident agent. Buttons work without inference. Built-in stdio MCP also exposes four focused tools for desktop clients.
 - **Know what happened.** Durable request IDs prevent duplicate delivery. Missing acknowledgements remain uncertain; commands are never automatically retried.
 
-**Early preview:** discovery, enrollment and status were verified on a Roku Express running OS 16.0.4. Real remote-button effects and LG hardware compatibility remain untested. Protocol and security checks also use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
+**Early preview:** discovery, enrollment and status were verified on a Roku Express running OS 16.0.4. The packaged Windows app also discovered a real LG webOS TV through the account-linked Add a TV flow. LG pairing and physical remote-button effects remain untested. Protocol and security checks also use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
 
 ## Get started
 
 1. Download the Windows installer from [Releases](https://github.com/utb2017/streamgpt-local/releases/latest). This preview is not code-signed; Windows may show an unknown-publisher warning. Check the published SHA-256 before installing.
 2. Open StreamGPT Local. Keep the computer and TV on the same home network. Ethernet and Wi-Fi both work when the router permits them to communicate.
-3. Open **Connection agent**, choose **Link account**, then **Open browser**. Sign in to the same StreamGPT account you use in ChatGPT, compare the displayed code and approve this computer.
-4. Back in the app, click **Find TVs**. Choose a named candidate and confirm **Connect TV**. On LG, approve the prompt on the physical TV if it appears. Roku checks network control without an LG-style approval prompt.
-5. Wait for the status result, then open **Remote**. Pairing alone is not treated as verified status, and no button is sent as an automatic test.
+3. Click **Add a TV**, then choose **Samsung**, **LG** or **Roku**. The app walks you through the steps for that TV.
+4. For ChatGPT control, choose **Connect to ChatGPT** when prompted. Your browser opens automatically. Sign in to the same StreamGPT account used in ChatGPT, compare the displayed code and click **Approve this computer**. The code is for comparison; you do not type it.
+5. Return to the app and click **Find TVs** for LG/Roku. Choose the TV from the results, then explicitly click **Connect TV**. Approve the LG TV prompt if it appears. Samsung setup guides you through SmartThings instead.
+6. The app reads status after connection. Your saved TVs appear on **Your TVs**; select one to use from ChatGPT or open its desktop remote. No remote button is sent as an automatic test.
 
-For standalone local control, skip account linking and use the explicitly labeled local-only controller. Manual network-address entry remains under **Connection help**. Desktop AI clients can use the separate **Desktop MCP** page.
+The setup shows search progress, results and an explicit empty or failed result. This computer is selected automatically when available. **Need help?** reveals guidance and optional assistant chat.
+
+Standalone computer control remains under **Settings ? Use remote on this computer**. Manual address entry is in setup help; **Desktop MCP** and connection diagnostics are under Settings.
 
 The app must remain open and the computer awake. No router port forwarding, vendor account password or paid cloud service is required for local operation. Power-on from standby, arbitrary app launching and media streaming are not included.
 

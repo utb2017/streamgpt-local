@@ -40,6 +40,12 @@ try {
       samsungConnected: true,
       helpers: [
         { id: helper, name: "Home PC", platform: "windows", online: true },
+        {
+          id: "other-pc",
+          name: "Office PC",
+          platform: "windows",
+          online: true,
+        },
       ],
       devices: [
         {
@@ -88,8 +94,8 @@ try {
       candidates: [],
       activity: [],
     };
-    let linked = true,
-      pending = false,
+    let linked = !location.search.includes("unlinked"),
+      pending = location.search.includes("pending"),
       offline = false,
       rev = 0;
     window.__calls = [];
@@ -106,13 +112,15 @@ try {
         if (command === "controller") {
           if (input.op === "snapshot") return structuredClone(local);
           if (input.op === "discover")
-            return [
-              {
-                host: "192.168.1.40",
-                brand: window.__fixture.discoveryBrand || "lg",
-                name: "Local discovery fixture",
-              },
-            ];
+            return window.__fixture.emptySearch
+              ? []
+              : [
+                  {
+                    host: "192.168.1.40",
+                    brand: window.__fixture.discoveryBrand || "lg",
+                    name: "Local discovery fixture",
+                  },
+                ];
           if (input.op === "add") {
             if (
               local.devices.some(
@@ -212,15 +220,24 @@ try {
         if (input.op === "action") {
           const a = input.action;
           delete base.receipt;
-          if (a.type === "discover_local")
-            base.candidates = [
-              {
-                helperId: helper,
-                candidateId: "candidate-lg",
-                name: "Cloud LG fixture",
-                brand: "lg",
-              },
-            ];
+          if (a.type === "discover_local") {
+            if (window.__fixture.failSearch)
+              throw Error("Fixture search failure");
+            if (window.__fixture.holdSearch)
+              await new Promise((resolve) => {
+                window.__fixture.releaseSearch = resolve;
+              });
+            base.candidates = window.__fixture.emptySearch
+              ? []
+              : [
+                  {
+                    helperId: helper,
+                    candidateId: "candidate-lg",
+                    name: "Cloud LG fixture",
+                    brand: "lg",
+                  },
+                ];
+          }
           if (a.type === "connect_local") {
             const lg = {
               ...structuredClone(base.devices[0]),
@@ -288,157 +305,328 @@ try {
   const calls = () => page.evaluate(() => window.__calls);
   const mutations = async () =>
     (await calls()).filter((c) => !["snapshot", "status"].includes(c.op));
-  const agent = async () =>
+  const dialog = page.getByRole("dialog");
+  const close = async () =>
+    dialog.getByRole("button", { name: "Close setup", exact: true }).click();
+  const add = async (brand) => {
+    await page.getByRole("button", { name: "Add a TV", exact: true }).click();
+    if (brand)
+      await dialog
+        .getByRole("button", { name: new RegExp("^" + brand + " ") })
+        .click();
+  };
+  const nav = async (name) =>
     page
-      .getByRole("button", { name: "Connection agent", exact: true })
-      .last()
+      .getByRole("navigation", { name: "App sections" })
+      .getByRole("button", { name, exact: true })
       .click();
-  const remote = async () =>
-    page.getByRole("button", { name: "Remote", exact: true }).click();
-  await page.goto("http://127.0.0.1:5198/");
+  const origin = "http://127.0.0.1:5198";
+  await page.goto(origin);
   await page
-    .getByLabel("Current TV and route")
-    .getByRole("option", { name: /Roku fixture/ })
-    .waitFor({ state: "attached" });
-  check((await mutations()).length === 0, "Opening app is read-only");
+    .getByRole("button", { name: "Choose Roku fixture", exact: true })
+    .waitFor();
+  check((await mutations()).length === 0, "Opening is idle and read-only");
   check(
-    (await page.getByLabel("Current TV and route").textContent()).includes(
-      "via Home PC",
-    ),
-    "Picker shows cloud route",
+    await page
+      .getByRole("heading", { name: "Your TVs.", exact: true })
+      .isVisible(),
+    "Your TVs is the main experience",
+  );
+  check(
+    (await page.locator(".tv-choice").count()) === 2,
+    "Existing multiple TVs appear as distinct selectable cards",
   );
   check(
     (await page
-      .getByRole("button", { name: "Power off", exact: true })
+      .getByRole("button", { name: "Add a TV", exact: true })
+      .count()) === 1,
+    "One Add a TV entry",
+  );
+  check(
+    !/snapshot|transport|helper|inference|deterministic|cloud|local-only/i.test(
+      await page.locator("main").textContent(),
+    ),
+    "Main copy has no engineering terms",
+  );
+  check(
+    (await page
+      .getByRole("button", { name: "Desktop MCP", exact: true })
       .count()) === 0,
-    "Roku has no invented power",
+    "Advanced tools stay out of main navigation",
   );
-  await agent();
-  check((await mutations()).length === 0, "Opening agent does not discover");
-  await page.getByRole("button", { name: "Find TVs", exact: true }).click();
-  await page.getByRole("button", { name: /Cloud LG fixture.*Choose/ }).click();
+  await add();
+  check((await mutations()).length === 0, "Opening Add a TV is idle");
+  check(
+    (await dialog.getByRole("button", { name: /^Samsung / }).isVisible()) &&
+      (await dialog.getByRole("button", { name: /^LG / }).isVisible()) &&
+      (await dialog.getByRole("button", { name: /^Roku / }).isVisible()),
+    "Guided brand choice",
+  );
+  check(
+    (await dialog
+      .getByRole("button", { name: "Continue with Samsung", exact: true })
+      .count()) === 0,
+    "Samsung setup hidden until chosen",
+  );
+  await dialog
+    .getByRole("button", { name: "Not sure? Help me choose" })
+    .click();
+  await dialog.getByRole("button", { name: "Choose TV type" }).click();
+  await dialog.getByRole("button", { name: /^LG / }).click();
+  check(
+    (await dialog.textContent()).includes(
+      "This computer will search your home network.",
+    ),
+    "Current computer chosen despite two online computers",
+  );
+  check(
+    (await dialog.getByLabel("Computer near your TV").count()) === 0,
+    "Computer picker secondary until needed",
+  );
+  check(
+    (await dialog.getByLabel("Message", { exact: true }).count()) === 0,
+    "Chat stays closed by default",
+  );
+  await page.screenshot({
+    path: join(qa, "simple-setup-lg-ready-phone.png"),
+    fullPage: true,
+  });
+  await page.evaluate(() => {
+    window.__fixture.holdSearch = true;
+  });
+  await dialog.getByRole("button", { name: "Find TVs", exact: true }).click();
+  await dialog
+    .getByRole("status")
+    .filter({ hasText: "Looking for TVs" })
+    .waitFor();
+  check(
+    (await mutations()).at(-1).action.helperId === "fixture-helper",
+    "Explicit Find uses current computer ID",
+  );
   check(
     (await mutations()).filter((c) => c.action?.type === "connect_local")
       .length === 0,
-    "Candidate selection is not connection",
+    "Search does not connect",
   );
-  await page.getByRole("button", { name: "Cancel choice" }).click();
+  await page.waitForFunction(() => !!window.__fixture.releaseSearch);
+  await page.evaluate(() => {
+    window.__fixture.releaseSearch();
+    window.__fixture.holdSearch = false;
+  });
+  await dialog
+    .getByRole("heading", { name: "1 TV found", exact: true })
+    .waitFor();
+  await dialog
+    .getByRole("button", { name: /Cloud LG fixture.*Choose/ })
+    .click();
   check(
     (await mutations()).filter((c) => c.action?.type === "connect_local")
       .length === 0,
-    "Cancel does not connect",
+    "Named choice still requires explicit Connect TV",
   );
-  await page.getByRole("button", { name: /Cloud LG fixture.*Choose/ }).click();
-  await page.getByRole("button", { name: "Connect TV", exact: true }).click();
-  await page
-    .locator(".route-picker .verification")
+  await dialog.getByRole("button", { name: "Connect TV", exact: true }).click();
+  await dialog
+    .locator(".connection-outcome .verification")
     .filter({ hasText: "Status read" })
     .waitFor();
   check(
     (await mutations()).filter((c) => c.action?.type === "connect_local")
       .length === 1,
-    "Confirmed cloud connection sends exactly one action",
+    "Connect TV sends one connection action",
   );
   check(
     !(await mutations()).some(
       (c) => c.op === "press" || c.action?.type === "send_tv_command",
     ),
-    "Connect verification uses no press",
+    "Verification never sends a button test",
   );
-  await page.getByLabel("Message", { exact: true }).fill("Help me connect");
-  await page.getByRole("button", { name: "Ask", exact: true }).click();
-  await page
-    .getByRole("status")
-    .filter({ hasText: "Deterministic controls remain available" })
+  check(
+    await dialog
+      .getByRole("heading", { name: "Connection activity", exact: true })
+      .isVisible(),
+    "Recorded activity visible after search",
+  );
+  await page.screenshot({
+    path: join(qa, "simple-setup-lg-connected-phone.png"),
+    fullPage: true,
+  });
+  await dialog.getByRole("button", { name: "Need help?", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Ask StreamGPT", exact: true })
+    .click();
+  await dialog.getByLabel("Message", { exact: true }).fill("Help me connect");
+  await dialog.getByRole("button", { name: "Ask", exact: true }).click();
+  await dialog
+    .locator(".sheet-notice")
+    .filter({ hasText: "could not finish" })
     .waitFor();
-  await remote();
+  await close();
+  await nav("Remote");
   await page.getByRole("button", { name: "Volume up", exact: true }).click();
   await page
     .locator(".command-feedback")
     .filter({ hasText: "accepted" })
     .waitFor();
-  const sent = (await mutations()).filter(
-    (c) => c.action?.type === "send_tv_command",
-  );
   check(
-    sent.length === 1 && sent[0].action.command === "volume_up",
-    "AI failure leaves one deterministic cloud button",
+    (await mutations()).at(-1).action.command === "volume_up",
+    "Optional assistant failure leaves deterministic controls usable",
   );
   check(
     !(await mutations()).some((c) => c.command === "controller"),
-    "Cloud clicks never fall back to controller",
+    "Linked buttons never fall back to this-computer commands",
   );
-  await page.getByLabel("Current TV and route").selectOption("samsung");
+  await nav("Your TVs");
+  await page
+    .getByRole("button", { name: "Choose Samsung fixture", exact: true })
+    .click();
+  await nav("Remote");
   await page.getByRole("button", { name: "Volume up", exact: true }).click();
-  await page.locator(".command-feedback").waitFor();
+  await page
+    .locator(".command-feedback")
+    .filter({ hasText: "accepted" })
+    .waitFor();
   check(
     (await mutations()).at(-1).action.component === "speaker-two",
-    "Samsung uses actual component",
+    "Samsung retains discovered component",
   );
-  await agent();
-  await page
-    .getByRole("button", { name: "Connect Samsung", exact: true })
+  await nav("Your TVs");
+  await add("Samsung");
+  check(
+    (await dialog.textContent()).includes("SmartThings"),
+    "Samsung explains phone prerequisite",
+  );
+  await dialog
+    .getByRole("button", { name: "Continue with Samsung", exact: true })
     .click();
-  await page
-    .getByRole("status")
-    .filter({ hasText: "Browser setup requested" })
+  await dialog
+    .locator(".sheet-notice")
+    .filter({ hasText: "Samsung setup opened" })
     .waitFor();
   check(
     (await mutations()).at(-1).op === "open_remote",
-    "Samsung setup uses fixed native browser operation",
+    "Samsung uses fixed native browser command",
   );
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await close();
+  await add("LG");
+  await dialog
+    .getByRole("button", { name: "Change computer", exact: true })
+    .click();
+  await dialog.getByLabel("Computer near your TV").selectOption("other-pc");
   check(
-    await page
-      .getByRole("heading", { name: "Account activity", exact: true })
-      .isVisible(),
-    "Account activity separate",
-  );
-  check(
-    await page
-      .getByRole("heading", { name: "On this computer", exact: true })
-      .isVisible(),
-    "Helper activity separate",
-  );
-  check(
-    !(await page.locator(".recorded-activity").textContent()).includes(
-      "domain-fixture",
+    (await dialog.textContent()).includes(
+      "Office PC will search your home network.",
     ),
-    "Technical run IDs not in consumer view",
+    "Optional computer choice is named plainly",
   );
-  await agent();
-  await page.getByRole("button", { name: "Use local-only controller" }).click();
+  await page.evaluate(() => {
+    window.__fixture.emptySearch = true;
+  });
+  await dialog.getByRole("button", { name: "Find TVs", exact: true }).click();
+  await dialog
+    .getByRole("heading", { name: "No TVs found this time.", exact: true })
+    .waitFor();
+  check(
+    (await mutations()).at(-1).action.helperId === "other-pc",
+    "Explicit other-computer choice preserves its ID",
+  );
+  check(
+    (await dialog.textContent()).includes(
+      "does not mean your TV is unsupported",
+    ),
+    "Empty search gives recovery without compatibility claim",
+  );
+  check(
+    await dialog
+      .getByRole("button", { name: "Try again", exact: true })
+      .isVisible(),
+    "Empty search offers retry",
+  );
+  await page.evaluate(() => {
+    window.__fixture.emptySearch = false;
+    window.__fixture.failSearch = true;
+  });
+  await dialog.getByRole("button", { name: "Try again", exact: true }).click();
+  await dialog
+    .getByRole("heading", { name: "The search could not finish.", exact: true })
+    .waitFor();
+  checks++;
+  await close();
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Use remote on this computer", exact: true })
+    .click();
   check(
     (await mutations()).filter((c) => c.op === "discover").length === 0,
-    "Local-only switch does not scan",
+    "Advanced local mode does not auto-scan",
   );
-  await page.getByText("Connection help", { exact: false }).click();
-  await page.getByLabel("TV local network address").fill("192.168.1.40");
-  await page.getByLabel("TV name", { exact: true }).fill("Manual Roku");
-  await page.getByLabel("TV type").selectOption("roku");
-  await page.getByRole("button", { name: "Save address", exact: true }).click();
-  await page.getByRole("heading", { name: "Saved TV: Manual Roku" }).waitFor();
+  await add("Roku");
+  await dialog.getByRole("button", { name: "Need help?", exact: true }).click();
+  await dialog
+    .getByText("Enter the TV address on this computer", { exact: true })
+    .click();
+  await dialog.getByLabel("TV type").selectOption("roku");
+  for (const invalid of ["169.254.3.4", "192.168.001.40"]) {
+    await dialog.getByLabel("TV local network address").fill(invalid);
+    await dialog
+      .getByRole("button", { name: "Save address", exact: true })
+      .click();
+    check(
+      (await mutations()).filter((c) => c.op === "add").length === 0,
+      "Manual IP validation " + invalid,
+    );
+  }
+  await dialog.getByLabel("TV local network address").fill("192.168.1.40");
+  await dialog.getByLabel("TV name", { exact: true }).fill("Manual Roku");
+  await dialog
+    .getByRole("button", { name: "Save address", exact: true })
+    .click();
+  await dialog
+    .getByRole("heading", { name: "Saved TV: Manual Roku", exact: true })
+    .waitFor();
   check(
     (await mutations()).filter((c) => c.op === "pair").length === 0,
-    "Saving address does not pair",
+    "Save address does not connect",
   );
   check(
     !(await calls())
       .filter((c) => c.command === "cloud_command")
       .some((c) => JSON.stringify(c).includes("192.168.1.40")),
-    "Manual address never sent to cloud",
+    "Manual IP never sent to cloud",
   );
-  await page.getByRole("button", { name: "Connect TV", exact: true }).click();
-  await page
-    .locator(".route-picker .verification")
+  await dialog.getByRole("button", { name: "Connect TV", exact: true }).click();
+  await dialog
+    .locator(".verification")
+    .filter({ hasText: "Status read" })
+    .first()
+    .waitFor();
+  assert.deepEqual(
+    (await mutations())
+      .filter((c) => c.command === "controller")
+      .map((c) => c.op),
+    ["add", "pair", "inspect"],
+  );
+  checks++;
+  await page.evaluate(() => {
+    window.__fixture.discoveryBrand = "roku";
+  });
+  await dialog.getByRole("button", { name: "Find TVs", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: /Local discovery fixture.*Choose/ })
+    .click();
+  await dialog
+    .locator(".candidate-confirm")
+    .getByRole("button", { name: "Connect TV", exact: true })
+    .click();
+  await dialog
+    .locator(".connection-outcome .verification")
     .filter({ hasText: "Status read" })
     .waitFor();
-  const localOps = (await mutations())
-    .filter((c) => c.command === "controller")
-    .map((c) => c.op);
-  assert.deepEqual(localOps, ["add", "pair", "inspect"]);
-  checks++;
-  await remote();
+  check(
+    (await mutations()).filter((c) => c.op === "add").length === 1,
+    "Rediscovered saved TV reused by host and brand",
+  );
+  await close();
+  await nav("Remote");
   await page.getByRole("button", { name: "Play / pause", exact: true }).focus();
   await page.keyboard.press("Enter");
   await page
@@ -447,7 +635,7 @@ try {
     .waitFor();
   check(
     (await mutations()).at(-1).op === "press",
-    "Local keyboard button uses only local route",
+    "Keyboard remote uses only selected computer route",
   );
   await page.evaluate(() => {
     window.__fixture.failInspect = true;
@@ -455,98 +643,107 @@ try {
   await page.getByRole("button", { name: "Check status", exact: true }).click();
   await page
     .getByRole("status")
-    .filter({ hasText: "Request unavailable" })
+    .filter({ hasText: "could not finish" })
     .waitFor();
   check(
     await page.getByRole("button", { name: "Home", exact: true }).isDisabled(),
-    "Failed local status read disables cached local controls",
+    "Failed local inspect disables cached route",
   );
   await page.evaluate(() => {
     window.__fixture.failInspect = false;
   });
   await page.getByRole("button", { name: "Check status", exact: true }).click();
   await page
-    .locator(".route-picker .verification")
+    .locator(".verification")
     .filter({ hasText: "Status read" })
     .waitFor();
   check(
     await page.getByRole("button", { name: "Home", exact: true }).isEnabled(),
-    "Explicit successful status read restores local route",
+    "Explicit status read recovers local route",
   );
-  await agent();
-  await page.evaluate(() => {
-    window.__fixture.discoveryBrand = "roku";
-  });
-  const addsBefore = (await mutations()).filter((c) => c.op === "add").length;
-  await page.getByRole("button", { name: "Find TVs", exact: true }).click();
-  await page
-    .getByRole("button", { name: /Local discovery fixture.*Choose/ })
-    .click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Connect TV", exact: true })
-    .click();
-  await page
-    .locator(".route-picker .verification")
-    .filter({ hasText: "Status read" })
-    .waitFor();
-  check(
-    (await mutations()).filter((c) => c.op === "add").length === addsBefore,
-    "Rediscovered saved host and brand reuses device without Add",
-  );
+  await nav("Settings");
   await page.getByRole("button", { name: "Desktop MCP", exact: true }).click();
   await page.getByText("synthetic MCP config", { exact: true }).waitFor();
   checks++;
-  await agent();
-  await page.getByRole("button", { name: "Use linked cloud remote" }).click();
+  await page
+    .getByRole("button", { name: "Back to Settings", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Use ChatGPT with your phone", exact: true })
+    .click();
+  await nav("Settings");
   await page
     .getByRole("button", { name: "Disconnect account", exact: true })
     .click();
   await page
     .getByRole("status")
-    .filter({ hasText: "Account-specific view cleared" })
+    .filter({ hasText: "Account disconnected" })
     .waitFor();
+  await nav("Your TVs");
   check(
-    !(await page.getByLabel("Current TV and route").textContent()).includes(
-      "Samsung fixture",
-    ),
-    "Disconnect clears account picker",
+    (await page
+      .getByRole("button", { name: "Choose Samsung fixture", exact: true })
+      .count()) === 0,
+    "Disconnect clears account TVs",
   );
-  check(
-    await page.getByLabel("Message", { exact: true }).isDisabled(),
-    "Disconnect disables assistant and clears reply",
-  );
-  await page.getByRole("button", { name: "Link account", exact: true }).click();
-  await page.getByText("Approval code: FIXTURE-123", { exact: true }).waitFor();
-  check(
-    await page.getByLabel("Message", { exact: true }).isDisabled(),
-    "Pending approval is not linked",
-  );
-  await page.getByRole("button", { name: "Open browser", exact: true }).click();
+  // Fresh first-run phone onboarding. Only Tauri is mocked; UI start/open sequencing is real.
+  await page.goto(origin + "/?unlinked");
   await page
-    .getByRole("status")
-    .filter({ hasText: "Browser approval requested" })
+    .getByRole("heading", { name: "Your first TV starts here.", exact: true })
     .waitFor();
-  check(
-    (await mutations()).at(-1).op === "open_approval",
-    "Approval opens fixed native operation",
-  );
-  await page.evaluate(() => {
-    window.__fixture.setLinked(true);
-    window.__fixture.base.devices[0].label = "New account Roku";
-    window.__fixture.base.activity = [];
-    delete window.__fixture.base.verification;
-  });
-  await page
-    .getByRole("button", { name: "Refresh account", exact: true })
+  check((await mutations()).length === 0, "First run opens idle");
+  await add("LG");
+  await dialog
+    .getByRole("button", { name: "Connect to ChatGPT", exact: true })
     .click();
-  await page
-    .getByLabel("Current TV and route")
-    .getByRole("option", { name: /New account Roku/ })
-    .waitFor({ state: "attached" });
-  checks++;
-  await page.getByLabel("Current TV and route").selectOption("fixture-roku");
-  await agent();
+  await dialog
+    .getByRole("heading", { name: "Finish in your browser", exact: true })
+    .waitFor();
+  check(
+    (await mutations()).filter((c) => c.op === "start").length === 1 &&
+      (await mutations()).filter((c) => c.op === "open_approval").length === 1,
+    "Explicit phone link starts once and auto-opens approval once",
+  );
+  check(
+    (await dialog
+      .getByRole("button", { name: "Connect to ChatGPT", exact: true })
+      .count()) === 0,
+    "Pending view cannot issue another code",
+  );
+  check(
+    (await dialog.textContent()).includes("same StreamGPT account") &&
+      (await dialog.textContent()).includes("comparison only"),
+    "Pending explains sign-in, comparison, approval and return",
+  );
+  check(
+    (await dialog.locator("input").count()) === 0,
+    "Comparison code is not an entry field",
+  );
+  await page.screenshot({
+    path: join(qa, "simple-setup-approval-phone.png"),
+    fullPage: true,
+  });
+  await dialog
+    .getByRole("button", { name: "Continue in browser", exact: true })
+    .click();
+  await dialog
+    .locator(".sheet-notice")
+    .filter({ hasText: "Continue in your browser" })
+    .waitFor();
+  check(
+    (await mutations()).filter((c) => c.op === "open_approval").length === 2 &&
+      (await mutations()).filter((c) => c.op === "start").length === 1,
+    "Manual browser fallback never generates another code",
+  );
+  await page.evaluate(() => window.__fixture.setLinked(true));
+  await dialog.getByRole("button", { name: "Find TVs", exact: true }).waitFor();
+  check(
+    !(await mutations()).some((c) => c.action?.type === "discover_local"),
+    "Account approval never auto-starts discovery",
+  );
+  await close();
+  // Independent status polling and stale-authority regressions.
+  await nav("Settings");
   await page.evaluate(() => {
     window.__fixture.holdSnapshot = true;
   });
@@ -554,19 +751,21 @@ try {
     .getByRole("button", { name: "Refresh account", exact: true })
     .click();
   await page.waitForFunction(() => !!window.__fixture.releaseSnapshot);
-  const snapshotCalls = (await calls()).filter(
+  const pendingSnapshots = (await calls()).filter(
     (c) => c.command === "cloud_command" && c.op === "snapshot",
   ).length;
   await page.evaluate(() => {
     window.__fixture.nativePhase = "started";
   });
-  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Connection diagnostics", exact: true })
+    .click();
   await page.getByText(/^Status read.*started$/).waitFor();
   check(
     (await calls()).filter(
       (c) => c.command === "cloud_command" && c.op === "snapshot",
-    ).length === snapshotCalls,
-    "Native status activity advances while a single cloud snapshot remains pending",
+    ).length === pendingSnapshots,
+    "Native status progresses while snapshot pending",
   );
   await page.evaluate(() => {
     window.__fixture.failSnapshot = true;
@@ -574,69 +773,136 @@ try {
   });
   await page
     .getByRole("status")
-    .filter({ hasText: "Cached cloud controls have been cleared" })
+    .filter({ hasText: "TV list is temporarily unavailable" })
     .waitFor();
-  await remote();
-  check(
-    !(await page.getByLabel("Current TV and route").textContent()).includes(
-      "New account Roku",
-    ),
-    "Failed account snapshot clears cached picker and command authority",
-  );
+  await nav("Remote");
   check(
     (await page.locator(".native-control-surface button:enabled").count()) ===
       0,
-    "No cloud buttons enabled after snapshot failure",
+    "Failed account snapshot clears cloud controls",
   );
   await page.evaluate(() => {
     window.__fixture.failSnapshot = false;
-    window.__fixture.nativePhase = "completed";
   });
-  await agent();
+  await nav("Settings");
   await page
     .getByRole("button", { name: "Refresh account", exact: true })
     .click();
+  await nav("Your TVs");
   await page
-    .getByLabel("Current TV and route")
-    .getByRole("option", { name: /New account Roku/ })
-    .waitFor({ state: "attached" });
-  await page.evaluate(() => window.__fixture.setOffline(true));
-  await agent();
+    .getByRole("button", { name: "Choose Roku fixture", exact: true })
+    .waitFor();
+  await page.evaluate(() => {
+    window.__fixture.setOffline(true);
+  });
+  await nav("Settings");
   await page
     .getByRole("button", { name: "Refresh account", exact: true })
     .click();
-  await page.getByText("Linked account", { exact: false }).first().waitFor();
-  await remote();
+  await nav("Remote");
   await page.waitForFunction(
     () => document.querySelector('button[aria-label="Home"]')?.disabled,
   );
   check(
     await page.getByRole("button", { name: "Home", exact: true }).isDisabled(),
-    "Own offline helper disables local-cloud buttons despite cached inventory",
+    "Offline current computer disables its TV buttons",
   );
+  await nav("Your TVs");
+  await page.screenshot({
+    path: join(qa, "simple-setup-your-tvs-phone.png"),
+    fullPage: true,
+  });
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     check(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
-      "No overflow " + width,
+      "TV list has no overflow " + width,
     );
+    await add("LG");
+    check(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+      "Setup sheet has no overflow " + width,
+    );
+    await close();
   }
-  await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: join(qa, "connection-native-phone.png"),
+    path: join(qa, "simple-setup-your-tvs-desktop.png"),
     fullPage: true,
   });
-  await agent();
-  await page.screenshot({
-    path: join(qa, "connection-native-agent-phone.png"),
-    fullPage: true,
+  // Pending on launch is resumed, with no automatic browser action or extra code.
+  await page.goto(origin + "/?unlinked&pending");
+  await page
+    .getByRole("button", { name: "Continue setup", exact: true })
+    .click();
+  await dialog
+    .getByRole("heading", { name: "Finish in your browser", exact: true })
+    .waitFor();
+  check(
+    (await mutations()).length === 0,
+    "Resuming pending setup opens no browser and creates no code",
+  );
+  await close();
+  await page.evaluate(() => {
+    window.__fixture.setLinked(true);
+    window.__fixture.setOffline(true);
   });
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Your TVs");
+  await page
+    .getByRole("button", { name: "Choose Roku fixture", exact: true })
+    .waitFor();
+  await add("LG");
+  await dialog
+    .getByText("Office PC will search your home network.", { exact: true })
+    .waitFor();
+  check(
+    (await dialog.getByLabel("Computer near your TV").count()) === 0,
+    "Sole other online computer is chosen with a named sentence",
+  );
+  await close();
+  await page.evaluate(() =>
+    window.__fixture.base.helpers.push({
+      id: "third-pc",
+      name: "Bedroom PC",
+      platform: "windows",
+      online: true,
+    }),
+  );
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Your TVs");
+  await add("LG");
+  await dialog.getByLabel("Computer near your TV").waitFor();
+  check(
+    (await dialog.getByLabel("Computer near your TV").inputValue()) === "",
+    "Ambiguous online computers require a named choice",
+  );
+  check(
+    (await dialog.getByLabel("Computer near your TV").textContent()).includes(
+      "This computer - Home PC - offline",
+    ),
+    "Current offline computer remains labelled clearly",
+  );
+  await page.keyboard.press("Escape");
+  check(
+    await page
+      .getByRole("button", { name: "Add a TV", exact: true })
+      .evaluate((el) => el === document.activeElement),
+    "Escape closes sheet and restores Add a TV focus",
+  );
   assert.deepEqual(errors, []);
   checks++;
   console.log(
-    `Native mock UI: ${checks} checks passed. No backend, account, discovery or TV contacted.`,
+    `Native guided UI: ${checks} checks passed; mocked Tauri only, zero browser errors and zero real TV/provider actions.`,
   );
 } finally {
   await browser.close();

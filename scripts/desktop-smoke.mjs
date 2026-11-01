@@ -35,8 +35,9 @@ try {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
   const page = browser.contexts()[0].pages()[0];
   await page
-    .getByRole("heading", { name: "Your remote." })
+    .getByRole("heading", { name: "Your TVs." })
     .waitFor();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Desktop MCP", exact: true }).click();
   await page.locator("pre").filter({ hasText: "mcpServers" }).waitFor();
   assert.ok((await page.locator("pre").innerText()).includes("--mcp"));
@@ -56,10 +57,11 @@ try {
   const before = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('cloud_command', {input:{op:'status'}}));
   assert.ok(['not_connected','pending','offline','connected'].includes(before.status));
   assert.equal('token' in before,false);
-  await page.getByRole('button',{name:'Connection agent',exact:true}).first().click();
-  await page.getByRole('heading',{name:'Connect with clarity.'}).waitFor();
+  await page.getByRole('button',{name:'Your TVs',exact:true}).click();
+  await page.getByRole('button',{name:'Add a TV',exact:true}).click();
+  await page.getByRole('dialog').getByRole('heading',{name:'What kind of TV?',exact:true}).waitFor();
   const after = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('cloud_command', {input:{op:'status'}}));
-  assert.deepEqual(after.activity,before.activity,'Opening the agent dispatched native work');
+  assert.deepEqual(after.activity,before.activity,'Opening Add a TV dispatched native work');
   await fs.mkdir('.local',{recursive:true});
   await page.screenshot({ path: ".local/native-window.png", fullPage: true });
   execFileSync('powershell.exe',['-NoProfile','-Command',`
@@ -73,7 +75,7 @@ try {
   const hiddenResult=await client.callTool({name:'list_tvs',arguments:{}});
   assert.notEqual(hiddenResult.isError,true,'Tray helper stopped serving read-only MCP');
   console.log(
-    "Native desktop: WebView2, Rust cloud/controller IPC, idle Connection agent, OS vault, authenticated MCP and close-to-tray passed. No TV calls.",
+    "Native desktop: WebView2, Rust cloud/controller IPC, idle Add a TV setup, OS vault, authenticated MCP and close-to-tray passed. No TV calls.",
   );
 } finally {
   await client?.close();

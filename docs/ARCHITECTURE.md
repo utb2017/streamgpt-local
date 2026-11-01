@@ -47,3 +47,12 @@ Every valid native operation records started and terminal events in a bounded in
 Socket hello/inventory heartbeats run every 20 seconds; both ends expire stale connections. Reconnection never replays buttons or queues offline actions. The native durable button journal remains the final duplicate barrier. Disconnecting locally removes the credential and stops sharing; account setup can revoke the server listing. On Windows, closing the window leaves the helper in the tray; Quit disconnects it.
 
 See [iOS preparation](IOS.md) for the shared mobile entry point, Mac build path and foreground-operation limits. The phone app does not provide an always-on background bridge while ChatGPT is foreground.
+
+
+## Guided setup and discovery recovery (0.2.1)
+
+The native app starts on Your TVs. Add a TV opens an explicit Samsung/LG/Roku flow. Account approval opens the fixed browser approval page only after a user click; the comparison code is explained and pending setup is resumed without creating another link. The current linked computer is preferred for discovery, with an explicit named choice only when required. Search state, results and confirmation remain distinct. Optional assistant chat and computer-only controls are secondary.
+
+Windows discovery supplements multicast with directed webOS SSDP requests to a bounded set of already-known neighbors from the OS cache. Physical adapter state, interface identity, private on-link address and resolved neighbor status are checked before selecting targets. Only a valid service advertisement creates an LG candidate. The fallback performs no address-range sweep, port scan, pairing or arbitrary advertised-URL fetch. Other platforms retain multicast discovery and manual-address setup. A cache miss can still require manual setup.
+
+The original five-second discovery window is shared by multicast and directed work, with bounded identity enrichment and a seven-second overall network budget below the cloud's ten-second deadline. Cache lookup is best-effort and cannot disable multicast. Choosing a found TV still requires explicit Connect TV.

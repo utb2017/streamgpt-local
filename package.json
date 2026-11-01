@@ -1,8 +1,8 @@
 {
   "name": "streamgpt-local",
   "productName": "StreamGPT Local",
-  "version": "0.2.0",
-  "description": "A monochrome desktop remote and local MCP bridge for LG webOS and Roku.",
+  "version": "0.2.1",
+  "description": "A Rust companion connecting LG and Roku TVs to StreamGPT in ChatGPT, with a desktop remote and local MCP.",
   "author": "Aaron Tomlinson",
   "license": "MIT",
   "type": "module",

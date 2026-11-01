@@ -9,6 +9,26 @@ import type {
 
 export const cloudLinked = (s: CloudStatus) =>
   !!s.helperId && (s.status === "connected" || s.status === "offline");
+
+// Display duplicate records once by ID; distinct computers keep distinct choices.
+export function setupComputers(
+  s: CloudSnapshot | null,
+  status: CloudStatus,
+  chosen = "",
+) {
+  const computers = [
+    ...new Map((s?.helpers || []).map((h) => [h.id, h])).values(),
+  ];
+  const online = computers.filter(
+    (h) =>
+      h.online && !(h.id === status.helperId && status.status !== "connected"),
+  );
+  const preferred =
+    online.find((h) => h.id === chosen) ||
+    online.find((h) => h.id === status.helperId) ||
+    (online.length === 1 ? online[0] : undefined);
+  return { computers, selected: preferred?.id || "" };
+}
 export class AccountSnapshots {
   current: CloudSnapshot | null = null;
   private key = "";
@@ -335,7 +355,7 @@ export const activityLabel: Record<string, string> = {
   select_tv: "TV selection",
   refresh_devices: "Inventory refresh",
   disconnect_samsung: "Samsung disconnect",
-  disconnect_helper: "Helper disconnect",
+  disconnect_helper: "Computer disconnect",
   ask_remote: "Assistant turn",
   discover: "Discovery",
   connect: "Connection",

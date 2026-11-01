@@ -5,6 +5,7 @@ import {
   cloudButton,
   verificationLabel,
   localAddress,
+  setupComputers,
 } from "./connection-model.ts";
 const status = (helperId = "home") => ({
   helperId,
@@ -169,4 +170,25 @@ test("native verification requires matching TV and live route", () => {
   assert.match(verificationLabel(s), /Status read/);
   s.helpers[0].online = false;
   assert.doesNotMatch(verificationLabel(s), /^Status read/);
+});
+test("setup prefers the current online computer and keeps distinct IDs separate", () => {
+  const s = snapshot();
+  s.helpers = [
+    { id: "home", name: "My PC", platform: "windows", online: true },
+    { id: "other", name: "My PC", platform: "windows", online: true },
+    { id: "home", name: "My PC", platform: "windows", online: true },
+  ];
+  assert.equal(setupComputers(s, status()).selected, "home");
+  assert.equal(setupComputers(s, status()).computers.length, 2);
+  assert.equal(setupComputers(s, status(), "other").selected, "other");
+  s.helpers[0].online = false;
+  s.helpers.pop();
+  assert.equal(setupComputers(s, status()).selected, "other");
+  s.helpers.push({
+    id: "third",
+    name: "Bedroom PC",
+    platform: "windows",
+    online: true,
+  });
+  assert.equal(setupComputers(s, status()).selected, "");
 });

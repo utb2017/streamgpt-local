@@ -1,6 +1,6 @@
 [package]
 name = "streamgpt-local"
-version = "0.2.0"
+version = "0.2.1"
 description = "A local LG webOS and Roku controller with MCP"
 authors = ["Aaron Tomlinson"]
 license = "MIT"
@@ -35,7 +35,11 @@ directories = "6"
 axum = "0.8"
 subtle = "2"
 if-addrs = "0.13"
+socket2 = "0.6"
 url = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 tauri-plugin-single-instance = "2"
