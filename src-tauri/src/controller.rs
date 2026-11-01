@@ -1,6 +1,6 @@
 use crate::{
     lg,
-    model::{now, Brand, Data, Device, Input, Receipt},
+    model::{now, Brand, ControlPermission, Data, Device, Input, Receipt, ReceiptReason},
     network, roku,
     vault::Vault,
 };
@@ -60,6 +60,7 @@ impl Controller {
                     paired: false,
                     reachable: false,
                     last_seen: None,
+                    control_permission: None,
                 });
                 self.save()?;
                 Ok(self.data.snapshot(&self.config))
@@ -98,29 +99,33 @@ impl Controller {
                     status: "uncertain".into(),
                     at: now(),
                     message: "Reserved. This request will never be automatically repeated.".into(),
+                    reason: None,
                 };
                 self.data.receipts.push(receipt);
                 self.save()?; // Durable reservation before network I/O.
-                let result = match device.brand {
-                    Brand::Roku => roku::press(&device.host, &button).await.map(|_| "accepted"),
-                    Brand::Lg => match lg::Session::open(
-                        &device.host,
-                        self.data.keys.get(&device_id).map(String::as_str),
-                    )
-                    .await
-                    {
-                        Ok(mut s) => s.press(&button).await,
-                        Err(e) => Err(e),
-                    },
+                let blocked = device.brand == Brand::Roku
+                    && device
+                        .control_permission
+                        .is_some_and(ControlPermission::blocked);
+                let result = if blocked {
+                    Err(roku::Error::ControlDisabled)
+                } else {
+                    match device.brand {
+                        Brand::Roku => roku::press(&device.host, &button).await.map(|_| "accepted"),
+                        Brand::Lg => match lg::Session::open(
+                            &device.host,
+                            self.data.keys.get(&device_id).map(String::as_str),
+                        )
+                        .await
+                        {
+                            Ok(mut s) => s.press(&button).await.map_err(roku::Error::from),
+                            Err(e) => Err(e.into()),
+                        },
+                    }
                 };
                 let receipt = self.data.receipts.last_mut().unwrap();
-                receipt.status = result
-                    .as_ref()
-                    .map(|s| s.to_string())
-                    .unwrap_or("uncertain".into());
-                receipt.message=if receipt.status=="accepted"{"Device acknowledged the request. The visible effect is not independently confirmed."}else{"Delivery was not confirmed. Check the TV before repeating. This request will not be resent."}.into();
+                finish_press(&mut self.data.devices[i], receipt, result, !blocked);
                 let receipt = receipt.clone();
-                self.data.devices[i].reachable = result.is_ok();
                 self.save()?;
                 Ok(json!({"snapshot":self.data.snapshot(&self.config),"receipt":receipt}))
             }
@@ -158,11 +163,20 @@ impl Controller {
             }
         };
         match result {
-            Ok(info) => {
+            Ok(mut info) => {
                 let d = &mut self.data.devices[i];
                 d.paired = true;
                 d.reachable = true;
                 d.last_seen = Some(now().to_string());
+                if d.brand == Brand::Roku {
+                    d.control_permission = Some(
+                        serde_json::from_value(info["controlPermission"].clone())
+                            .unwrap_or_default(),
+                    );
+                    info["controlPermission"] = json!(d.control_permission);
+                }
+                info["reachable"] = json!(true);
+                info["lastSeen"] = json!(now());
                 if let Some(model) = info["model"].as_str() {
                     d.model = model.into();
                 }
@@ -170,10 +184,45 @@ impl Controller {
                 Ok(json!({"snapshot":self.data.snapshot(&self.config),"info":info}))
             }
             Err(e) => {
-                self.data.devices[i].reachable = false;
+                let d = &mut self.data.devices[i];
+                d.reachable = e == "ROKU_CONTROL_DISABLED";
+                if d.reachable {
+                    d.control_permission = Some(ControlPermission::Disabled);
+                    d.last_seen = Some(now().to_string());
+                }
                 self.save()?;
                 Err(e)
             }
+        }
+    }
+}
+fn finish_press(
+    device: &mut Device,
+    receipt: &mut Receipt,
+    result: Result<&str, roku::Error>,
+    attempted: bool,
+) {
+    let denied = matches!(result, Err(roku::Error::ControlDisabled));
+    receipt.status = if denied {
+        "rejected".into()
+    } else {
+        result.as_ref().copied().unwrap_or("uncertain").into()
+    };
+    receipt.reason = denied.then_some(ReceiptReason::RokuControlDisabled);
+    receipt.message = if denied {
+        "On Roku: Settings > System > Advanced system settings > Control by mobile apps > Network access > Enabled. Then check status. This request will not be resent."
+    } else if receipt.status == "accepted" {
+        "Device acknowledged the request. The visible effect is not independently confirmed."
+    } else {
+        "Delivery was not confirmed. Check the TV before repeating. This request will not be resent."
+    }.into();
+    if attempted {
+        device.reachable = result.is_ok() || denied;
+        if device.reachable {
+            device.last_seen = Some(now().to_string());
+        }
+        if denied {
+            device.control_permission = Some(ControlPermission::Disabled);
         }
     }
 }
@@ -196,6 +245,89 @@ pub fn duplicate<'a>(
 mod tests {
     use super::*;
     use crate::model::Button;
+    fn fixture_device(permission: ControlPermission) -> Device {
+        Device {
+            id: Uuid::new_v4().to_string(),
+            name: "Fixture".into(),
+            host: "invalid-fixture-host".into(),
+            brand: Brand::Roku,
+            model: "Express".into(),
+            paired: true,
+            reachable: false,
+            last_seen: Some("1".into()),
+            control_permission: Some(permission),
+        }
+    }
+    fn fixture_receipt(device: &Device) -> Receipt {
+        Receipt {
+            id: Uuid::new_v4().to_string(),
+            device_id: device.id.clone(),
+            button: Button::Play,
+            status: "uncertain".into(),
+            at: now(),
+            message: "reserved".into(),
+            reason: None,
+        }
+    }
+    #[test]
+    fn denial_is_rejected_and_reachable_but_transport_failure_is_uncertain() {
+        let mut device = fixture_device(ControlPermission::Unknown);
+        let mut receipt = fixture_receipt(&device);
+        finish_press(
+            &mut device,
+            &mut receipt,
+            Err(roku::Error::ControlDisabled),
+            true,
+        );
+        assert_eq!(receipt.status, "rejected");
+        assert_eq!(receipt.reason, Some(ReceiptReason::RokuControlDisabled));
+        assert!(device.reachable);
+        assert_ne!(device.last_seen.as_deref(), Some("1"));
+        assert_eq!(device.control_permission, Some(ControlPermission::Disabled));
+        finish_press(
+            &mut device,
+            &mut receipt,
+            Err(roku::Error::Other("timeout".into())),
+            true,
+        );
+        assert_eq!(receipt.status, "uncertain");
+        assert_eq!(receipt.reason, None);
+        assert!(!device.reachable);
+    }
+    #[tokio::test]
+    async fn blocked_preflight_is_durable_without_fabricating_reachability_or_replaying() {
+        for permission in [ControlPermission::Limited, ControlPermission::Disabled] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut controller = Controller::new(Vault::isolated_test(dir.path().into())).unwrap();
+            let device = fixture_device(permission);
+            let id = device.id.clone();
+            let request = Uuid::new_v4().to_string();
+            controller.data.devices.push(device);
+            let command = || Input::Press {
+                device_id: id.clone(),
+                request_id: request.clone(),
+                button: Button::Play,
+            };
+            let result = controller.dispatch(command()).await.unwrap();
+            assert_eq!(result["receipt"]["status"], "rejected");
+            assert_eq!(result["receipt"]["reason"], "ROKU_CONTROL_DISABLED");
+            assert!(!controller.data.devices[0].reachable);
+            assert_eq!(controller.data.devices[0].last_seen.as_deref(), Some("1"));
+            let mut restarted = Controller::new(Vault::isolated_test(dir.path().into())).unwrap();
+            restarted.data.devices[0].control_permission = Some(ControlPermission::Enabled);
+            let replay = restarted.dispatch(command()).await.unwrap();
+            assert_eq!(replay["receipt"], result["receipt"]);
+            assert_eq!(restarted.data.receipts.len(), 1);
+        }
+    }
+    #[test]
+    fn old_storage_without_permission_or_reason_still_loads() {
+        let device:Device=serde_json::from_value(json!({"id":"tv","name":"Roku","host":"fixture","brand":"roku","model":"Express","paired":true,"reachable":false,"lastSeen":"42"})).unwrap();
+        assert_eq!(device.control_permission, None);
+        assert_eq!(device.last_seen.as_deref(), Some("42"));
+        let receipt:Receipt=serde_json::from_value(json!({"id":"r","deviceId":"tv","button":"play","status":"uncertain","at":0,"message":"reserved"})).unwrap();
+        assert_eq!(receipt.reason, None);
+    }
     #[test]
     fn durable_receipts_prevent_replay_and_conflicts() {
         let id = Uuid::new_v4().to_string();
@@ -207,6 +339,7 @@ mod tests {
             status: "uncertain".into(),
             at: 0,
             message: "reserved".into(),
+            reason: None,
         });
         let restarted: Data = serde_json::from_slice(&serde_json::to_vec(&d).unwrap()).unwrap();
         assert!(duplicate(&restarted, &id, "tv", &Button::Home)

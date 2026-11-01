@@ -25,6 +25,7 @@ export interface Device {
   model: string;
   paired: boolean;
   reachable: boolean;
+  controlPermission?: "enabled" | "limited" | "disabled" | "unknown";
   lastSeen?: string;
 }
 export interface Candidate {
@@ -40,6 +41,7 @@ export interface Receipt {
   status: "accepted" | "uncertain" | "rejected";
   at: number;
   message: string;
+  reason?: "ROKU_CONTROL_DISABLED";
 }
 export interface Snapshot {
   devices: Device[];
@@ -63,6 +65,9 @@ export interface CloudDevice {
   helperId?: string;
   localDeviceId?: string;
   online?: boolean;
+  reachable?: boolean;
+  lastSeen?: number;
+  controlPermission?: "enabled" | "limited" | "disabled" | "unknown";
   buttons?: string[];
   components: Array<{
     id: string;
@@ -124,6 +129,7 @@ export interface CloudSnapshot {
     requestId: string;
     status: "accepted" | "rejected" | "uncertain";
     message: string;
+    reason?: "ROKU_CONTROL_DISABLED";
   };
   resident?: { reply: string };
 }

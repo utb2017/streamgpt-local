@@ -11,13 +11,13 @@
 StreamGPT Local is a Rust companion for the [StreamGPT](https://streamgpt.dev) TV remote. Link your account to bring local Roku and LG TVs into the same remote as your existing Samsung connection, including authenticated ChatGPT control. Use the guided Add a TV flow on your computer, then control connected TVs from ChatGPT on your phone. The native process handles discovery, pairing, encrypted storage and commands. Tauri uses the operating system's webview instead of shipping Chromium or Node.js.
 
 - **Find your screens.** Bounded SSDP discovery on private IPv4 interfaces, with manual address entry available in setup help.
-- **Approve access.** LG pairing happens on the TV. Roku requires network control enabled in its settings.
+- **Approve access.** LG pairing happens on the TV. On Roku, select **Settings > System > Advanced system settings > Control by mobile apps > Network access > Enabled**. Ordinary remote buttons do not require Developer Mode.
 - **Keep control local.** Pairing credentials and the command journal are encrypted using a key held by the OS credential store.
 - **Follow the setup.** One Add a TV flow shows candidates, connection requests and actual activity. Choosing a TV and connecting it are separate steps; successful pairing is followed by a read-only status check.
 - **Connect your AI.** The account-linked assistant reuses StreamGPT's resident agent. Buttons work without inference. Built-in stdio MCP also exposes four focused tools for desktop clients.
 - **Know what happened.** Durable request IDs prevent duplicate delivery. Missing acknowledgements remain uncertain; commands are never automatically retried.
 
-**Early preview:** discovery, enrollment and status were verified on a Roku Express running OS 16.0.4. The packaged Windows app also discovered a real LG webOS TV through the account-linked Add a TV flow. LG pairing and physical remote-button effects remain untested. Protocol and security checks also use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
+**Early preview:** real Roku discovery/enrollment/status and LG on-TV approval plus a read-only status request have been observed. A Roku Express 4K+ running OS 15.3.4 reported network control set to Limited; user Play requests reached the helper, but their physical effects were not confirmed. Successful status reads do not prove button permission. Automated control tests use fixtures. The screenshot is a labeled preview. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
 
 ## Get started
 
@@ -26,7 +26,8 @@ StreamGPT Local is a Rust companion for the [StreamGPT](https://streamgpt.dev) T
 3. Click **Add a TV**, then choose **Samsung**, **LG** or **Roku**. The app walks you through the steps for that TV.
 4. For ChatGPT control, choose **Connect to ChatGPT** when prompted. Your browser opens automatically. Sign in to the same StreamGPT account used in ChatGPT, compare the displayed code and click **Approve this computer**. The code is for comparison; you do not type it.
 5. Return to the app and click **Find TVs** for LG/Roku. Choose the TV from the results, then explicitly click **Connect TV**. Approve the LG TV prompt if it appears. Samsung setup guides you through SmartThings instead.
-6. The app reads status after connection. Your saved TVs appear on **Your TVs**; select one to use from ChatGPT or open its desktop remote. No remote button is sent as an automatic test.
+6. For Roku, set **Settings > System > Advanced system settings > Control by mobile apps > Network access > Enabled** using the Roku remote. If you change it after connecting, use **Check status** in StreamGPT to refresh the permission reading.
+7. The app reads status after connection. Your saved TVs appear on **Your TVs**; select one to use from ChatGPT or open its desktop remote. No remote button is sent as an automatic test.
 
 The setup shows search progress, results and an explicit empty or failed result. This computer is selected automatically when available. **Need help?** reveals guidance and optional assistant chat.
 

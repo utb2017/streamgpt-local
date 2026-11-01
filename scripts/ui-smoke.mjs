@@ -63,7 +63,7 @@ try {
             "left",
             "right",
             "select",
-            "Play",
+            "play",
             "rewind",
             "forward",
           ],
@@ -191,6 +191,8 @@ try {
               : [],
           };
         if (input.op === "snapshot") {
+          if (window.__fixture.authSnapshot)
+            throw Error("Link this helper to StreamGPT again.");
           if (window.__fixture.failSnapshot)
             throw Error("Fixture account snapshot unavailable");
           const response = snap();
@@ -283,7 +285,10 @@ try {
           if (a.type === "send_tv_command")
             base.receipt = {
               requestId: a.requestId,
-              status: "accepted",
+              status: window.__fixture.rejectControl ? "rejected" : "accepted",
+              ...(window.__fixture.rejectControl
+                ? { reason: "ROKU_CONTROL_DISABLED" }
+                : {}),
               message: "Fixture only",
             };
           const seq = (base.activity.at(-1)?.seq || 0) + 1;
@@ -322,7 +327,7 @@ try {
       .getByRole("navigation", { name: "App sections" })
       .getByRole("button", { name, exact: true })
       .click();
-  const origin = "http://127.0.0.1:5198";
+  const origin = process.env.STREAMGPT_UI_QA_ORIGIN || "http://127.0.0.1:5198";
   await page.goto(origin);
   await page
     .getByRole("button", { name: "Choose Roku fixture", exact: true })
@@ -837,9 +842,8 @@ try {
     .waitFor();
   await nav("Remote");
   check(
-    (await page.locator(".native-control-surface button:enabled").count()) ===
-      0,
-    "Failed account snapshot clears cloud controls",
+    (await page.locator(".native-control-surface button:enabled").count()) > 0,
+    "Transient account snapshot failure retains deliberate controls",
   );
   await page.evaluate(() => {
     window.__fixture.failSnapshot = false;
@@ -893,6 +897,125 @@ try {
     path: join(qa, "simple-setup-your-tvs-desktop.png"),
     fullPage: true,
   });
+  // Gap closure: auth loss latches; permissions and TV last-read evidence are separate.
+  await page.goto(origin);
+  await page
+    .getByRole("button", { name: "Choose Roku fixture", exact: true })
+    .waitFor();
+  await page.evaluate(() => (window.__fixture.authSnapshot = true));
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await page
+    .getByRole("status")
+    .filter({ hasText: "Link this helper to StreamGPT again." })
+    .waitFor();
+  await nav("Remote");
+  check(
+    (await page.locator(".native-control-surface button:enabled").count()) ===
+      0,
+    "Explicit authentication failure clears native account",
+  );
+  await page.evaluate(() => (window.__fixture.authSnapshot = false));
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Remote");
+  check(
+    (await page.locator(".native-control-surface button:enabled").count()) ===
+      0,
+    "Same-link polling cannot undo auth loss",
+  );
+  await page.goto(origin);
+  await page
+    .getByRole("button", { name: "Choose Roku fixture", exact: true })
+    .waitFor();
+  await page.evaluate(() =>
+    Object.assign(window.__fixture.base.devices[0], {
+      controlPermission: "limited",
+      reachable: true,
+      lastSeen: 1000,
+    }),
+  );
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Remote");
+  await page
+    .locator(".control-evidence")
+    .filter({ hasText: "network control is limited" })
+    .waitFor();
+  check(
+    await page
+      .getByRole("button", { name: "Play / pause", exact: true })
+      .isDisabled(),
+    "Known Limited permission blocks native button",
+  );
+  check(
+    await page
+      .getByRole("button", { name: "Check status", exact: true })
+      .isEnabled(),
+    "Permission failure leaves explicit status recovery enabled",
+  );
+  await nav("Your TVs");
+  await add("Roku");
+  check(
+    (await dialog.locator(".roku-setup-guide").textContent()).includes(
+      "Network access > Enabled",
+    ),
+    "Exact Roku prerequisite is visible",
+  );
+  await close();
+  await nav("Remote");
+  await page.evaluate(() =>
+    Object.assign(window.__fixture.base.devices[0], {
+      controlPermission: "enabled",
+      reachable: false,
+    }),
+  );
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Remote");
+  await page
+    .locator(".control-evidence")
+    .filter({ hasText: "Last TV read: unreachable" })
+    .waitFor();
+  check(
+    await page
+      .getByRole("button", { name: "Check status", exact: true })
+      .isEnabled(),
+    "Last failed probe does not block status recovery",
+  );
+  await page.evaluate(() => (window.__fixture.rejectControl = true));
+  await page.getByRole("button", { name: "Play / pause", exact: true }).click();
+  await page
+    .locator(".command-feedback")
+    .filter({ hasText: "Network access > Enabled" })
+    .waitFor();
+  check(
+    (await mutations()).filter((c) => c.action?.type === "send_tv_command")
+      .length === 1,
+    "Permission rejection is not replayed",
+  );
+  await page.evaluate(() => (window.__fixture.base.devices = []));
+  await nav("Settings");
+  await page
+    .getByRole("button", { name: "Refresh account", exact: true })
+    .click();
+  await nav("Remote");
+  await page.waitForFunction(
+    () => !document.querySelector(".native-control-surface button:enabled"),
+  );
+  check(
+    (await page.locator(".native-control-surface button:enabled").count()) ===
+      0,
+    "Fresh authoritative empty inventory clears controls",
+  );
   // Pending on launch is resumed, with no automatic browser action or extra code.
   await page.goto(origin + "/?unlinked&pending");
   await page

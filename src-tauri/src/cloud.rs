@@ -115,6 +115,9 @@ fn client() -> Result<reqwest::Client, String> {
 }
 async fn read_json(response: reqwest::Response) -> Result<Value, String> {
     let status = response.status();
+    if status == 401 {
+        return Err("Link this helper to StreamGPT again.".into());
+    }
     let mut data = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -127,9 +130,7 @@ async fn read_json(response: reqwest::Response) -> Result<Value, String> {
     let parsed: Value = serde_json::from_slice(&data).map_err(|_| "Invalid server response.")?;
     if !status.is_success() {
         let code = parsed["error"].as_str().unwrap_or("");
-        return Err(if status == 401 {
-            "Link this helper to StreamGPT again."
-        } else if matches!(code, "LG_APPROVAL_TIMEOUT" | "LG_APPROVAL_REJECTED" | "LG_PAIRING_INTERRUPTED" | "LG_SECURE_CONNECTION_FAILED" | "LG_CERTIFICATE_CHANGED") {
+        return Err(if matches!(code, "LG_APPROVAL_TIMEOUT" | "LG_APPROVAL_REJECTED" | "LG_PAIRING_INTERRUPTED" | "LG_SECURE_CONNECTION_FAILED" | "LG_CERTIFICATE_CHANGED" | "REMOTE_BUSY" | "HELPER_UNAVAILABLE" | "COMMAND_EXPIRED" | "ROKU_CONTROL_DISABLED") {
             code
         } else { "StreamGPT could not complete this request. Check status before repeating a connection or command." }.into());
     }
@@ -165,7 +166,12 @@ pub fn buttons(d: &Device) -> Vec<&'static str> {
     values
 }
 fn public_devices(devices: &[Device]) -> Value {
-    json!(devices.iter().filter(|d|d.paired).take(32).map(|d|json!({"id":d.id,"name":public_label(&d.name),"brand":d.brand,"model":public_label(&d.model),"buttons":buttons(d)})).collect::<Vec<_>>())
+    json!(devices.iter().filter(|d|d.paired).take(32).map(|d| {
+        let mut value = json!({"id":d.id,"name":public_label(&d.name),"brand":d.brand,"model":public_label(&d.model),"buttons":buttons(d),"reachable":d.reachable});
+        if let Some(seen) = d.last_seen.as_deref().and_then(|v| v.parse::<u64>().ok()).filter(|v| *v <= 8_640_000_000_000_000) { value["lastSeen"] = json!(seen); }
+        if d.brand == Brand::Roku { value["controlPermission"] = json!(d.control_permission.unwrap_or_default()); }
+        value
+    }).collect::<Vec<_>>())
 }
 fn public_label(value: &str) -> String {
     let text: String = value.chars().filter(|c| !c.is_control()).take(40).collect();
@@ -202,6 +208,20 @@ fn valid_action(action: &Value) -> bool {
 }
 fn public_info(info: &Value) -> Value {
     let mut result = json!({"online":true});
+    if let Some(reachable) = info["reachable"].as_bool() {
+        result["reachable"] = json!(reachable);
+    }
+    if let Some(seen) = info["lastSeen"]
+        .as_u64()
+        .filter(|v| *v <= 8_640_000_000_000_000)
+    {
+        result["lastSeen"] = json!(seen);
+    }
+    if let Ok(permission) =
+        serde_json::from_value::<crate::model::ControlPermission>(info["controlPermission"].clone())
+    {
+        result["controlPermission"] = json!(permission);
+    }
     if let Some(power) = info["power"].as_str() {
         result["power"] = json!(match power.to_ascii_lowercase().as_str() {
             "poweron" | "on" => "on",
@@ -225,7 +245,12 @@ fn public_info(info: &Value) -> Value {
     result
 }
 fn public_receipt(receipt: &Value) -> Value {
-    json!({"id":receipt["id"],"status":receipt["status"],"message":receipt["message"]})
+    let mut result =
+        json!({"id":receipt["id"],"status":receipt["status"],"message":receipt["message"]});
+    if receipt["status"] == "rejected" && receipt["reason"] == "ROKU_CONTROL_DISABLED" {
+        result["reason"] = json!("ROKU_CONTROL_DISABLED");
+    }
+    result
 }
 fn valid_job(j: &Job) -> bool {
     j.kind == "request"
@@ -788,6 +813,9 @@ mod tests {
         for (code, expected) in [
             ("LG_APPROVAL_TIMEOUT", "LG_APPROVAL_TIMEOUT"),
             ("LG_SECURE_CONNECTION_FAILED", "LG_SECURE_CONNECTION_FAILED"),
+            ("REMOTE_BUSY", "REMOTE_BUSY"),
+            ("HELPER_UNAVAILABLE", "HELPER_UNAVAILABLE"),
+            ("ROKU_CONTROL_DISABLED", "ROKU_CONTROL_DISABLED"),
             ("private pairing key and address", "StreamGPT could not complete this request. Check status before repeating a connection or command."),
         ] {
             let router = axum::Router::new().route("/", axum::routing::get(move || async move {
@@ -800,6 +828,31 @@ mod tests {
             assert_eq!(read_json(response).await.unwrap_err(), expected);
             server.abort();
         }
+    }
+    #[tokio::test]
+    async fn unauthorized_is_exact_auth_message_even_with_non_json_body() {
+        let router = axum::Router::new().route(
+            "/",
+            axum::routing::get(|| async {
+                (axum::http::StatusCode::UNAUTHORIZED, "private invalid body")
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let response = client()
+            .unwrap()
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            read_json(response).await.unwrap_err(),
+            "Link this helper to StreamGPT again."
+        );
+        server.abort();
     }
 
     fn isolated_cloud() -> (tempfile::TempDir, Arc<Cloud>, Grant) {
@@ -998,6 +1051,20 @@ mod tests {
             json!({"id":id,"status":"accepted","message":"Accepted."})
         );
         assert_eq!(wire.as_object().unwrap().len(), 3);
+        let denied = public_receipt(
+            &json!({"id":id,"status":"rejected","message":"safe","reason":"ROKU_CONTROL_DISABLED"}),
+        );
+        assert_eq!(denied["reason"], "ROKU_CONTROL_DISABLED");
+        for (status, reason) in [
+            ("accepted", "ROKU_CONTROL_DISABLED"),
+            ("rejected", "PRIVATE_PROVIDER_ERROR"),
+        ] {
+            assert!(public_receipt(
+                &json!({"id":id,"status":status,"message":"safe","reason":reason})
+            )
+            .get("reason")
+            .is_none());
+        }
     }
     #[test]
     fn activity_is_bounded_ordered_and_has_no_provider_payload() {
@@ -1038,11 +1105,66 @@ mod tests {
             paired: true,
             reachable: true,
             last_seen: None,
+            control_permission: None,
         };
         let value = public_devices(&[d.clone()]);
         assert!(!value.to_string().contains("192.168"));
         assert!(!buttons(&d).contains(&"volume_up"));
         d.paired = false;
         assert_eq!(public_devices(&[d]), json!([]));
+    }
+    fn native_wire_fixture() -> Value {
+        let roku = Device {
+            id: "11111111-1111-4111-8111-111111111111".into(),
+            name: "Living room Roku".into(),
+            host: "fixture.invalid".into(),
+            brand: Brand::Roku,
+            model: "Express".into(),
+            paired: true,
+            reachable: false,
+            last_seen: Some("1700000000000".into()),
+            control_permission: Some(crate::model::ControlPermission::Enabled),
+        };
+        let lg = Device {
+            id: "33333333-3333-4333-8333-333333333333".into(),
+            name: "Bedroom LG".into(),
+            brand: Brand::Lg,
+            model: "webOS".into(),
+            control_permission: None,
+            ..roku.clone()
+        };
+        let receipt = crate::model::Receipt {
+            id: "22222222-2222-4222-8222-222222222222".into(),
+            device_id: roku.id.clone(),
+            button: Button::Play,
+            status: "rejected".into(),
+            at: 1700000000000,
+            message: "Enable network control.".into(),
+            reason: Some(crate::model::ReceiptReason::RokuControlDisabled),
+        };
+        json!({"devices":public_devices(&[roku,lg]),"deniedReceipt":public_receipt(&serde_json::to_value(receipt).unwrap())})
+    }
+    #[test]
+    fn native_wire_serialization_matches_checked_fixture() {
+        let expected: Value =
+            serde_json::from_str(include_str!("../tests/native-wire-v1.json")).unwrap();
+        assert_eq!(native_wire_fixture(), expected);
+        for device in expected["devices"].as_array().unwrap() {
+            for button in device["buttons"].as_array().unwrap() {
+                let parsed: Button = serde_json::from_value(button.clone()).unwrap();
+                assert_eq!(serde_json::to_value(parsed).unwrap(), *button);
+            }
+        }
+    }
+    #[test]
+    #[ignore = "explicit fixture export only; set STREAMGPT_WIRE_FIXTURE_OUT"]
+    fn export_native_wire_fixture() {
+        let path =
+            std::env::var("STREAMGPT_WIRE_FIXTURE_OUT").expect("explicit output path required");
+        std::fs::write(
+            path,
+            serde_json::to_string_pretty(&native_wire_fixture()).unwrap() + "\n",
+        )
+        .unwrap();
     }
 }

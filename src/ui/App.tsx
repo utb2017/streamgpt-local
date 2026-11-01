@@ -1,4 +1,11 @@
-import { connectionFailure } from "./connection-failure";
+import { connectionFailure, isAccountAuthError } from "./connection-failure";
+import {
+  controlBlocked,
+  deviceEvidenceText,
+  errorCode,
+  recoveryText,
+  rokuInstructions,
+} from "./recovery";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
@@ -128,6 +135,7 @@ function App() {
     "idle" | "searching" | "found" | "empty" | "failed"
   >("idle");
   const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
+  const [staleInventory, setStaleInventory] = useState(false);
   const [setupResult, setSetupResult] = useState<string | null>(null);
   const searchScope = useRef(0),
     sheet = useRef<HTMLDialogElement>(null),
@@ -146,6 +154,7 @@ function App() {
         ?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [candidate, connectionNotice]);
   const store = useRef(new AccountSnapshots()),
+    authLost = useRef(false),
     lock = useRef(false),
     live = useRef(true),
     epoch = useRef(0),
@@ -173,16 +182,25 @@ function App() {
   const callCloud = (input: CloudInput) =>
     invoke<any>("cloud_command", { input });
   const publish = (value: unknown, generation: number) => {
-    if (live.current && store.current.accept(value, generation)) {
+    if (
+      live.current &&
+      !authLost.current &&
+      store.current.accept(value, generation)
+    ) {
       setCloud(store.current.current);
+      setStaleInventory(false);
       setNotice((previous) =>
         previous.startsWith("Your TV list is temporarily unavailable.")
           ? "Account refreshed."
           : previous,
       );
+      return true;
     }
+    return false;
   };
   function clearAccount() {
+    authLost.current = false;
+    setStaleInventory(false);
     store.current.reset();
     setCloud(null);
     setCandidate(null);
@@ -204,6 +222,8 @@ function App() {
     )
       throw new Error("Invalid status");
     if (store.current.scope(value)) {
+      authLost.current = false;
+      setStaleInventory(false);
       setCloud(null);
       setCandidate(null);
       setSearchOutcome("idle");
@@ -228,21 +248,29 @@ function App() {
     setMessage("");
   }
   async function readCloud(generation: number, current: number) {
-    if (snapshotReading.current === generation) return;
+    if (authLost.current || snapshotReading.current === generation) return;
     snapshotReading.current = generation;
     try {
       const value = await callCloud({ op: "snapshot" });
       if (live.current && current === epoch.current) publish(value, generation);
-    } catch {
+    } catch (error) {
       if (
         live.current &&
         current === epoch.current &&
         generation === store.current.generation
       ) {
-        invalidateCloud(generation);
-        setNotice(
-          "Your TV list is temporarily unavailable. Open Settings and refresh your account.",
-        );
+        if (isAccountAuthError(error)) {
+          authLost.current = true;
+          invalidateCloud(generation);
+          setNotice(
+            "Link this helper to StreamGPT again. Disconnect and reconnect your account in Settings.",
+          );
+        } else {
+          setStaleInventory(true);
+          setNotice(
+            "Your TV list is temporarily unavailable. Showing saved TVs; every action still checks your account. Refresh in Settings when ready.",
+          );
+        }
       }
     } finally {
       if (snapshotReading.current === generation)
@@ -296,17 +324,31 @@ function App() {
       await work();
       if (uncertain === "connection") setConnectionNotice(null);
     } catch (error) {
+      if (isAccountAuthError(error)) {
+        authLost.current = true;
+        invalidateCloud(store.current.generation);
+        setNotice(
+          "Link this helper to StreamGPT again. Disconnect and reconnect your account in Settings.",
+        );
+        return;
+      }
       setNotice(
         uncertain === "connection"
           ? connectionFailure(error)
-          : uncertain
-            ? "Outcome unknown. Check status before trying again. Nothing was retried."
-            : "That request could not finish. Please try again when you are ready.",
+          : errorCode(error)
+            ? recoveryText(error)
+            : uncertain
+              ? "Outcome unknown. Check status before trying again. Nothing was retried."
+              : "That request could not finish. Please try again when you are ready.",
       );
       if (uncertain === "connection")
         setConnectionNotice(connectionFailure(error));
       if (uncertain === true)
-        setFeedback("Outcome uncertain. No automatic replay.");
+        setFeedback(
+          errorCode(error)
+            ? recoveryText(error)
+            : "Outcome uncertain. No automatic replay.",
+        );
     } finally {
       lock.current = false;
       if (live.current) setBusy("");
@@ -323,13 +365,15 @@ function App() {
       async () => {
         const generation = store.current.generation,
           next = await callCloud({ op: "action", action: value });
-        publish(next, generation);
+        const accepted = publish(next, generation);
         if (generation !== store.current.generation) return;
-        response = store.current.current || undefined;
+        response = accepted ? store.current.current || undefined : undefined;
         if (value.type === "send_tv_command")
           setFeedback(
             next?.receipt?.requestId === value.requestId
-              ? `${next.receipt.status}. TV execution is not confirmed.`
+              ? next.receipt.reason === "ROKU_CONTROL_DISABLED"
+                ? recoveryText("ROKU_CONTROL_DISABLED")
+                : `${next.receipt.status}. TV execution is not confirmed.`
               : "No matching receipt. Check status before trying again.",
           );
         setNotice("Updated. Check your TV status below.");
@@ -491,7 +535,7 @@ function App() {
     await run(
       device.brand === "lg"
         ? "Connection requested. Check your LG TV and approve the connection if it asks."
-        : "Checking Roku network control. No LG prompt is expected.",
+        : "Reading Roku device information and permission. No button will be used as a test.",
       async () => {
         applyLocal(await native({ op: "pair", deviceId: device.id }));
         setNotice("Connection returned. Reading status without a button test…");
@@ -535,7 +579,7 @@ function App() {
     await run(
       chosen.brand === "lg"
         ? "Connection requested. Check your LG TV and approve the connection if it asks."
-        : "Checking Roku network control.",
+        : "Reading Roku device information and permission.",
       async () => {
         const existing = data.devices.find(
           (d) => d.host === chosen.host && d.brand === chosen.brand,
@@ -574,6 +618,7 @@ function App() {
     if (
       !localDevice?.paired ||
       !localDevice.reachable ||
+      controlBlocked(localDevice) ||
       !localKeys(localDevice).includes(id as Button)
     )
       return;
@@ -589,7 +634,9 @@ function App() {
         applyLocal(result);
         setFeedback(
           result?.receipt?.status
-            ? `${result.receipt.status}. Physical execution is not confirmed.`
+            ? result.receipt.reason === "ROKU_CONTROL_DISABLED"
+              ? recoveryText("ROKU_CONTROL_DISABLED")
+              : `${result.receipt.status}. Physical execution is not confirmed.`
             : "No receipt. Check status before trying again.",
         );
         setNotice("Command returned. Nothing was automatically repeated.");
@@ -618,7 +665,9 @@ function App() {
     const disabled =
       !!busy ||
       (useLocal
-        ? !localDevice?.paired || !localDevice.reachable
+        ? !localDevice?.paired ||
+          !localDevice.reachable ||
+          controlBlocked(localDevice)
         : !cloudButton(cloud, id, "availability"));
     const label = keyLabel(useLocal ? localDevice : cloudDevice, id);
     return (
@@ -691,10 +740,15 @@ function App() {
   function accountSetup() {
     return linked ? (
       <div className="connected-note">
-        <strong>Connected to your account</strong>
+        <strong>
+          {authLost.current
+            ? "Reconnect your account"
+            : "Connected to your account"}
+        </strong>
         <p>
-          Open StreamGPT in ChatGPT on your phone. Keep this computer awake to
-          reach your TVs.
+          {authLost.current
+            ? "Disconnect and reconnect your account in Settings to continue."
+            : "Open StreamGPT in ChatGPT on your phone. Keep this computer awake to reach your TVs."}
         </p>
       </div>
     ) : status.pending ? (
@@ -929,7 +983,9 @@ function App() {
           </span>
           <span className="account-chip">
             {linked
-              ? "Account connected"
+              ? authLost.current
+                ? "Reconnect account"
+                : "Account connected"
               : status.pending
                 ? "Approval in progress"
                 : "Welcome"}
@@ -1101,6 +1157,15 @@ function App() {
                 </select>
               </label>
               <p className="verification">{verification}</p>
+              {staleInventory && !useLocal && (
+                <p className="verification">
+                  Showing saved TVs. Automatic refresh is unavailable; every
+                  action checks your account.
+                </p>
+              )}
+              <p className="control-evidence">
+                {deviceEvidenceText(useLocal ? localDevice : cloudDevice)}
+              </p>
               {!selectedName && <p>Choose a TV in Your TVs first.</p>}
               <section className="remote-panel unified-remote">
                 <div className="remote-heading">
@@ -1431,6 +1496,12 @@ function App() {
               will search your home network, so keep the TV and computer on the
               same router.
             </p>
+            {setup === "roku" && (
+              <p className="roku-setup-guide">
+                {rokuInstructions} A successful status read does not prove
+                buttons are allowed.
+              </p>
+            )}
             {!linked && !localMode ? (
               accountSetup()
             ) : (
@@ -1595,8 +1666,8 @@ function App() {
                       </div>
                     ) : (
                       <p>
-                        We will check Roku network control. No TV button will be
-                        used as a test.
+                        We will read Roku device information and permission. No
+                        TV button will be used as a test.
                       </p>
                     )}
                     <div className="agent-button-row">
@@ -1624,6 +1695,11 @@ function App() {
                     <div className="connection-outcome">
                       <h3>{selectedName}</h3>
                       <p className="verification">{verification}</p>
+                      <p className="control-evidence">
+                        {deviceEvidenceText(
+                          useLocal ? localDevice : cloudDevice,
+                        )}
+                      </p>
                       <button
                         className="secondary"
                         disabled={!!busy}

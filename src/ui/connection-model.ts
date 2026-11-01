@@ -71,6 +71,13 @@ export class AccountSnapshots {
           !!d &&
           typeof d.id === "string" &&
           typeof d.label === "string" &&
+          (d.reachable === undefined || typeof d.reachable === "boolean") &&
+          (d.lastSeen === undefined ||
+            (Number.isFinite(d.lastSeen) && d.lastSeen >= 0)) &&
+          (d.controlPermission === undefined ||
+            ["enabled", "limited", "disabled", "unknown"].includes(
+              d.controlPermission,
+            )) &&
           (d.provider === undefined ||
             d.provider === "local" ||
             d.provider === "smartthings") &&
@@ -129,7 +136,9 @@ export class AccountSnapshots {
               ["requested", "completed", "failed"].includes(a.phase) &&
               Number.isFinite(a.at),
           ))) ||
-      (s.resident !== undefined && typeof s.resident?.reply !== "string")
+      (s.resident !== undefined && typeof s.resident?.reply !== "string") ||
+      (s.receipt?.reason !== undefined &&
+        s.receipt.reason !== "ROKU_CONTROL_DISABLED")
     )
       return false;
     if (
@@ -235,7 +244,14 @@ export function cloudButton(
   requestId: string,
 ): CloudAction | null {
   const d = cloudSelected(s);
-  if (!s || !d || !routeAvailable(s, d)) return null;
+  if (
+    !s ||
+    !d ||
+    !routeAvailable(s, d) ||
+    d.controlPermission === "limited" ||
+    d.controlPermission === "disabled"
+  )
+    return null;
   if (d.provider === "local") {
     const button = advertised(d, id);
     if (

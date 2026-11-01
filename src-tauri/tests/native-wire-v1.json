@@ -1,0 +1,56 @@
+{
+  "devices": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "Living room Roku",
+      "brand": "roku",
+      "model": "Express",
+      "buttons": [
+        "home",
+        "back",
+        "up",
+        "down",
+        "left",
+        "right",
+        "select",
+        "play",
+        "rewind",
+        "forward"
+      ],
+      "reachable": false,
+      "lastSeen": 1700000000000,
+      "controlPermission": "enabled"
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "name": "Bedroom LG",
+      "brand": "lg",
+      "model": "webOS",
+      "buttons": [
+        "home",
+        "back",
+        "up",
+        "down",
+        "left",
+        "right",
+        "select",
+        "play",
+        "rewind",
+        "forward",
+        "pause",
+        "volume_up",
+        "volume_down",
+        "mute",
+        "power_off"
+      ],
+      "reachable": false,
+      "lastSeen": 1700000000000
+    }
+  ],
+  "deniedReceipt": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "status": "rejected",
+    "message": "Enable network control.",
+    "reason": "ROKU_CONTROL_DISABLED"
+  }
+}

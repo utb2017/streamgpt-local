@@ -7,6 +7,25 @@ pub enum Brand {
     Lg,
     Roku,
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlPermission {
+    Enabled,
+    Limited,
+    Disabled,
+    #[default]
+    Unknown,
+}
+impl ControlPermission {
+    pub fn blocked(self) -> bool {
+        matches!(self, Self::Limited | Self::Disabled)
+    }
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+pub enum ReceiptReason {
+    #[serde(rename = "ROKU_CONTROL_DISABLED")]
+    RokuControlDisabled,
+}
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Device {
@@ -19,6 +38,8 @@ pub struct Device {
     pub reachable: bool,
     #[serde(default)]
     pub last_seen: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub control_permission: Option<ControlPermission>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -48,6 +69,8 @@ pub struct Receipt {
     pub status: String,
     pub at: u64,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ReceiptReason>,
 }
 #[derive(Default, Clone, Deserialize, Serialize)]
 pub struct Data {

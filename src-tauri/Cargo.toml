@@ -1,6 +1,6 @@
 [package]
 name = "streamgpt-local"
-version = "0.2.2"
+version = "0.2.3"
 description = "A local LG webOS and Roku controller with MCP"
 authors = ["Aaron Tomlinson"]
 license = "MIT"

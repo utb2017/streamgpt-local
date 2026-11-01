@@ -1,3 +1,10 @@
+import { recoveryText } from "./recovery";
+export function isAccountAuthError(error: unknown): boolean {
+  return (
+    (error instanceof Error ? error.message : error) ===
+    "Link this helper to StreamGPT again."
+  );
+}
 // Only fixed, known error codes become UI copy; never render provider text.
 export function connectionFailure(error: unknown): string {
   const code =
@@ -7,6 +14,10 @@ export function connectionFailure(error: unknown): string {
         ? error.message
         : "";
   const messages: Record<string, string> = {
+    ROKU_CONTROL_DISABLED: recoveryText("ROKU_CONTROL_DISABLED"),
+    HELPER_UNAVAILABLE: recoveryText("HELPER_UNAVAILABLE"),
+    REMOTE_BUSY: recoveryText("REMOTE_BUSY"),
+    COMMAND_EXPIRED: recoveryText("COMMAND_EXPIRED"),
     LG_APPROVAL_TIMEOUT:
       "The LG did not finish approval in time. Go to the TV with its remote. When you are ready, find it again, choose Connect TV, and accept the request on the TV screen.",
     LG_APPROVAL_REJECTED:
@@ -20,7 +31,7 @@ export function connectionFailure(error: unknown): string {
   };
   return (
     (messages[code] ||
-      "The TV connection was not confirmed. Refresh your TV list first. If it is not connected, find it again when you are near the TV and ready to approve.") +
+      "The TV connection was not confirmed. Refresh your TV list first. If it is not connected, find it again when you are ready.") +
     " No TV buttons were sent. Nothing was retried."
   );
 }

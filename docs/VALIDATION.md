@@ -1,5 +1,16 @@
 # Release validation
 
+## 0.2.3 permission and recovery fixes
+
+Rust protocol/controller tests: 52 passed, with one fixture-export utility ignored by default. Tests cover real loopback HTTP403 versus a post-send timeout, durable denied-command receipts, old stored records, and shared Rust-generated wire fixtures. Hosted schema tests use the identical fixture bytes and actual `play`/`power_off` names.
+
+Native UI: seven model tests and 73 mocked browser checks pass. Coverage includes transient inventory retention, explicit auth/revocation clearing, Roku permission recovery, and no automatic button/pairing replay. Companion hosted tests and browser regressions cover account busy rejection, outage recovery, fixed denial reasons, stale host notification rejection, compatibility initialization and stable computer/TV pickers.
+
+The Windows x64 installer built successfully. The packaged WebView2 app, Rust IPC, encrypted OS vault, authenticated local MCP and close-to-tray smoke checks passed. After restart, v0.2.3 retained all saved local TVs and the account link; the live hosted inventory also retained Samsung. A read-only request to the Roku returned reachable with Limited network control, and the account-linked remote displayed the exact setting guidance with playback buttons blocked and Check status available.
+
+These tests do not prove physical playback. The observed Roku reported Limited network control before this update. LG on-TV approval and a read-only status request have succeeded; physical button effects remain user-verified work. Previous sections below are historical release records, not the current feature inventory.
+
+
 ## 0.1.2 discovery-first setup
 
 Production UI build, 12 Rust tests, Clippy with warnings denied, browser fixture flows and independent MCP checks passed. Browser checks cover automatic discovery, selecting a result without typing an address, manual fallback, empty results, and the connection gate before remote buttons are enabled.

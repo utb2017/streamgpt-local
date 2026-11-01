@@ -56,3 +56,9 @@ The native app starts on Your TVs. Add a TV opens an explicit Samsung/LG/Roku fl
 Windows discovery supplements multicast with directed webOS SSDP requests to a bounded set of already-known neighbors from the OS cache. Physical adapter state, interface identity, private on-link address and resolved neighbor status are checked before selecting targets. Only a valid service advertisement creates an LG candidate. The fallback performs no address-range sweep, port scan, pairing or arbitrary advertised-URL fetch. Other platforms retain multicast discovery and manual-address setup. A cache miss can still require manual setup.
 
 The original five-second discovery window is shared by multicast and directed work, with bounded identity enrichment and a seven-second overall network budget below the cloud's ten-second deadline. Cache lookup is best-effort and cannot disable multicast. Choosing a found TV still requires explicit Connect TV.
+
+## Permission and outage recovery (0.2.3)
+
+Saved inventory carries optional permission, last-successful-read time and reachability evidence. The helper socket being online does not establish TV reachability or button permission. Explicit status reads remain available to refresh a blocked Roku after its settings change; background synchronization never probes TVs.
+
+Known Roku permission denial produces a durable rejected receipt with the fixed ROKU_CONTROL_DISABLED reason. Network ambiguity remains uncertain. Hosted account operations reject conflicting work promptly while a provider operation is active, preserving serialization without retaining commands to send later. Transient inventory failures preserve selection; authoritative revocation and explicit auth failure still clear account controls. Fixed recovery codes are mapped to product guidance rather than exposing provider response bodies.

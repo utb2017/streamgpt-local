@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { deviceEvidenceText, recoveryText } from "./recovery.ts";
 import {
   AccountSnapshots,
   cloudButton,
@@ -191,4 +192,54 @@ test("setup prefers the current online computer and keeps distinct IDs separate"
     online: true,
   });
   assert.equal(setupComputers(s, status()).selected, "");
+});
+
+test("permission evidence validates without confusing helper availability and TV readiness", () => {
+  const s = snapshot();
+  s.devices[0].manufacturer = "roku";
+  s.devices[0].buttons = ["play"];
+  assert.equal(cloudButton(s, "play", "r").command, "play");
+  assert.match(deviceEvidenceText(s.devices[0]), /permission is unknown/);
+  for (const permission of ["limited", "disabled"]) {
+    const blocked = {
+      ...s,
+      devices: [{ ...s.devices[0], controlPermission: permission }],
+    };
+    assert.equal(cloudButton(blocked, "play", "r"), null);
+    assert.match(
+      deviceEvidenceText(blocked.devices[0]),
+      /Network access > Enabled/,
+    );
+    const store = new AccountSnapshots();
+    store.scope(status());
+    assert.ok(store.accept(blocked));
+  }
+  for (const fields of [
+    { controlPermission: "invalid" },
+    { reachable: 1 },
+    { lastSeen: -1 },
+    { lastSeen: NaN },
+  ]) {
+    const store = new AccountSnapshots();
+    store.scope(status());
+    assert.equal(
+      store.accept({ ...s, devices: [{ ...s.devices[0], ...fields }] }),
+      false,
+    );
+  }
+  s.devices[0].reachable = false;
+  s.devices[0].controlPermission = "enabled";
+  assert.match(deviceEvidenceText(s.devices[0]), /Last TV read: unreachable/);
+  assert.ok(
+    cloudButton(s, "play", "r"),
+    "Cached failed read does not replace online helper authority",
+  );
+  assert.match(
+    recoveryText("ROKU_CONTROL_DISABLED"),
+    /Network access > Enabled/,
+  );
+  assert.doesNotMatch(
+    recoveryText("untrusted provider details"),
+    /untrusted provider/,
+  );
 });
