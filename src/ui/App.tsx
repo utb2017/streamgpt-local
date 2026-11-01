@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import { connectionFailure } from "./connection-failure";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -126,10 +127,24 @@ function App() {
   const [searchOutcome, setSearchOutcome] = useState<
     "idle" | "searching" | "found" | "empty" | "failed"
   >("idle");
+  const [connectionNotice, setConnectionNotice] = useState<string | null>(null);
   const [setupResult, setSetupResult] = useState<string | null>(null);
   const searchScope = useRef(0),
     sheet = useRef<HTMLDialogElement>(null),
     addEntry = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // Put the next instruction in view, including after a modal scroll. A TV
+    // approval prompt must never be hidden above/below the visible sheet.
+    const target = connectionNotice
+      ? ".connection-progress"
+      : candidate
+        ? ".candidate-confirm"
+        : null;
+    if (target)
+      sheet.current
+        ?.querySelector(target)
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [candidate, connectionNotice]);
   const store = useRef(new AccountSnapshots()),
     lock = useRef(false),
     live = useRef(true),
@@ -266,7 +281,7 @@ function App() {
   async function run(
     label: string,
     work: () => Promise<void>,
-    uncertain = false,
+    uncertain: boolean | "connection" = false,
   ) {
     if (demo) {
       setNotice("Preview only. No operation sent.");
@@ -276,15 +291,22 @@ function App() {
     lock.current = true;
     setBusy(label);
     setNotice(label);
+    if (uncertain === "connection") setConnectionNotice(label);
     try {
       await work();
-    } catch {
+      if (uncertain === "connection") setConnectionNotice(null);
+    } catch (error) {
       setNotice(
-        uncertain
-          ? "Outcome unknown. Check status before trying again. Nothing was retried."
-          : "That request could not finish. Please try again when you are ready.",
+        uncertain === "connection"
+          ? connectionFailure(error)
+          : uncertain
+            ? "Outcome unknown. Check status before trying again. Nothing was retried."
+            : "That request could not finish. Please try again when you are ready.",
       );
-      if (uncertain) setFeedback("Outcome uncertain. No automatic replay.");
+      if (uncertain === "connection")
+        setConnectionNotice(connectionFailure(error));
+      if (uncertain === true)
+        setFeedback("Outcome uncertain. No automatic replay.");
     } finally {
       lock.current = false;
       if (live.current) setBusy("");
@@ -312,8 +334,14 @@ function App() {
           );
         setNotice("Updated. Check your TV status below.");
       },
-      value.type === "send_tv_command" || value.type === "connect_local",
+      value.type === "connect_local"
+        ? "connection"
+        : value.type === "send_tv_command",
     );
+    if (value.type === "connect_local" && !response) {
+      // Reconcile saved inventory only. Never replay pairing or send a button.
+      await readCloud(store.current.generation, epoch.current);
+    }
     return response;
   }
   useEffect(() => {
@@ -391,6 +419,7 @@ function App() {
     });
   }
   async function find() {
+    setConnectionNotice(null);
     if (busy || (!localMode && !linked) || (!useLocal && !chosenHelper)) return;
     const scope = ++searchScope.current,
       generation = store.current.generation;
@@ -469,7 +498,7 @@ function App() {
         await checkLocal(device);
         setSetupResult(device.id);
       },
-      true,
+      "connection",
     );
   }
   async function connectCandidate() {
@@ -533,7 +562,7 @@ function App() {
         await checkLocal(added);
         setSetupResult(added.id);
       },
-      true,
+      "connection",
     );
   }
   async function press(id: KeyId) {
@@ -1303,6 +1332,18 @@ function App() {
                     ? "Let\u2019s find your TV type"
                     : "Connect to ChatGPT"}
         </h2>
+        {(setup === "lg" || setup === "roku") && connectionNotice && (
+          <section
+            className="candidate-confirm connection-progress"
+            role="status"
+            aria-live="polite"
+          >
+            <h3>
+              {busy ? "Connecting to your TV" : "Connection not confirmed"}
+            </h3>
+            <p>{connectionNotice}</p>
+          </section>
+        )}
         {setup === "brand" && (
           <>
             <p>Choose the name on your TV or streaming device.</p>
@@ -1534,11 +1575,30 @@ function App() {
                     aria-label="Confirm TV connection"
                   >
                     <h3>Connect {candidate.name}?</h3>
-                    <p>
-                      {candidate.brand === "lg"
-                        ? "Check your LG TV and approve the connection if it asks."
-                        : "We will check Roku network control. No TV button will be used as a test."}
-                    </p>
+                    {candidate.brand === "lg" ? (
+                      <div className="tv-approval-guide" role="note">
+                        <h3>Be near your LG TV first</h3>
+                        <ol>
+                          <li>
+                            Take the LG remote with you and leave the TV on.
+                          </li>
+                          <li>When you are ready, choose Connect TV below.</li>
+                          <li>
+                            Look at the TV screen and choose Allow or Accept if
+                            it asks.
+                          </li>
+                        </ol>
+                        <p>
+                          The request waits up to 40 seconds for approval. No TV
+                          buttons will be sent.
+                        </p>
+                      </div>
+                    ) : (
+                      <p>
+                        We will check Roku network control. No TV button will be
+                        used as a test.
+                      </p>
+                    )}
                     <div className="agent-button-row">
                       <button
                         className="secondary"

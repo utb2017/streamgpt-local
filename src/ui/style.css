@@ -2063,3 +2063,15 @@ input::placeholder {
     padding: 18px;
   }
 }
+
+.tv-approval-guide ol {
+  padding-left: 22px;
+  line-height: 1.7;
+}
+.tv-approval-guide li + li {
+  margin-top: 8px;
+}
+.connection-progress {
+  margin: 16px 0;
+  border-left: 3px solid var(--accent, #d8e0df);
+}

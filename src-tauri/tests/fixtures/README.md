@@ -1,0 +1,1 @@
+Synthetic TLS test identity only. The private key is intentionally public and must never be used outside loopback tests. The X.509 v1 certificate reproduces older LG webOS certificate parsing. No real TV credentials are included.

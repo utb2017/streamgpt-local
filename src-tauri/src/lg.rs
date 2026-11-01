@@ -1,19 +1,14 @@
 use crate::{model::Button, network::private_host};
 use futures_util::{SinkExt, StreamExt};
-use rustls::{
-    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    pki_types::{CertificateDer, ServerName, UnixTime},
-    DigitallySignedStruct, SignatureScheme,
-};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
-    connect_async_tls_with_config,
-    tungstenite::{protocol::WebSocketConfig, Error as WsError, Message},
-    Connector, MaybeTlsStream, WebSocketStream,
+    client_async_with_config,
+    tungstenite::{protocol::WebSocketConfig, Message},
+    MaybeTlsStream, WebSocketStream,
 };
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 #[derive(Clone, Serialize, Deserialize)]
@@ -22,96 +17,85 @@ struct Pairing {
     secure: bool,
     fingerprint: Option<String>,
 }
-#[derive(Debug)]
-struct Pin(Option<String>);
 fn fingerprint(cert: &[u8]) -> String {
     Sha256::digest(cert)
         .iter()
         .map(|v| format!("{v:02x}"))
         .collect()
 }
-impl ServerCertVerifier for Pin {
-    fn verify_server_cert(
-        &self,
-        end: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: UnixTime,
-    ) -> Result<ServerCertVerified, rustls::Error> {
-        if let Some(expected) = &self.0 {
-            if expected != &fingerprint(end.as_ref()) {
-                return Err(rustls::Error::General(
-                    "TV certificate changed; pair again explicitly.".into(),
-                ));
-            }
+// LG's older webOS firmware serves X.509 v1 certificates. The platform TLS
+// stack supports these while still verifying TLS handshake signatures. Trust is
+// established by explicit TV approval, then the exact certificate is pinned.
+fn peer_fingerprint(stream: &MaybeTlsStream<TcpStream>) -> Result<Option<String>, String> {
+    match stream {
+        MaybeTlsStream::NativeTls(tls) => {
+            let cert = tls
+                .get_ref()
+                .peer_certificate()
+                .map_err(|_| "LG certificate unavailable.")?
+                .ok_or("LG certificate unavailable.")?;
+            let der = cert.to_der().map_err(|_| "LG certificate unavailable.")?;
+            Ok(Some(fingerprint(&der)))
         }
-        Ok(ServerCertVerified::assertion())
-    }
-    fn verify_tls12_signature(
-        &self,
-        msg: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            msg,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
-    }
-    fn verify_tls13_signature(
-        &self,
-        msg: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            msg,
-            cert,
-            dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
-        )
-    }
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        rustls::crypto::ring::default_provider()
-            .signature_verification_algorithms
-            .supported_schemes()
+        MaybeTlsStream::Plain(_) => Ok(None),
+        _ => Err("Unsupported LG TLS connection.".into()),
     }
 }
-async fn socket(url: &str, pin: Option<String>) -> Result<Socket, String> {
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .map_err(|_| "TLS unavailable.")?
-    .dangerous()
-    .with_custom_certificate_verifier(Arc::new(Pin(pin)))
-    .with_no_client_auth();
-    let limits = WebSocketConfig::default()
-        .max_message_size(Some(262144))
-        .max_frame_size(Some(262144));
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        connect_async_tls_with_config(
-            url,
-            Some(limits),
-            false,
-            Some(Connector::Rustls(Arc::new(config))),
-        ),
-    )
-    .await;
-    match result {
-        Ok(Ok((socket, _))) => Ok(socket),
-        Ok(Err(WsError::Io(e))) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
-            Err("connection_refused".into())
+fn verify_pin(expected: Option<&str>, actual: Option<&str>) -> Result<(), String> {
+    if let Some(expected) = expected {
+        if actual != Some(expected) {
+            return Err("LG_CERTIFICATE_CHANGED".into());
         }
-        Err(_) => Err("connection_timeout".into()),
-        _ => Err(
-            "LG connection failed. Check the TV, IP address, and saved pairing certificate.".into(),
-        ),
     }
+    Ok(())
+}
+async fn socket(url: &str, pin: Option<String>) -> Result<Socket, String> {
+    let parsed = url::Url::parse(url).map_err(|_| "Invalid LG socket.")?;
+    let host = parsed.host_str().ok_or("Invalid LG socket.")?;
+    let port = parsed.port().ok_or("Invalid LG socket.")?;
+    if !matches!(parsed.scheme(), "ws" | "wss") {
+        return Err("Invalid LG socket.".into());
+    }
+    let connect = async {
+        let tcp = TcpStream::connect((host, port)).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::ConnectionRefused {
+                "connection_refused"
+            } else {
+                "Could not reach the LG TV."
+            }
+        })?;
+        let stream = if parsed.scheme() == "wss" {
+            let connector = native_tls::TlsConnector::builder()
+                .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+                // Local TVs use self-signed certificates without IP SANs. This
+                // exception is scoped to LG only, never StreamGPT/cloud traffic.
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .build()
+                .map_err(|_| "LG TLS unavailable.")?;
+            let tls = tokio_native_tls::TlsConnector::from(connector)
+                .connect(host, tcp)
+                .await
+                .map_err(|_| "LG_SECURE_CONNECTION_FAILED")?;
+            MaybeTlsStream::NativeTls(tls)
+        } else {
+            MaybeTlsStream::Plain(tcp)
+        };
+        // Verify BEFORE the HTTP upgrade (including pointer URL), registration,
+        // pairing key, or any control request is sent. Never downgrade a pin.
+        let actual = peer_fingerprint(&stream)?;
+        verify_pin(pin.as_deref(), actual.as_deref())?;
+        let limits = WebSocketConfig::default()
+            .max_message_size(Some(262144))
+            .max_frame_size(Some(262144));
+        client_async_with_config(url, stream, Some(limits))
+            .await
+            .map(|(socket, _)| socket)
+            .map_err(|_| "LG WebSocket connection failed.".to_string())
+    };
+    tokio::time::timeout(Duration::from_secs(5), connect)
+        .await
+        .map_err(|_| "connection_timeout".to_string())?
 }
 pub struct Session {
     socket: Socket,
@@ -149,15 +133,7 @@ impl Session {
             }
             Err(e) => return Err(e),
         };
-        let cert = match ws.get_ref() {
-            MaybeTlsStream::Rustls(s) => s
-                .get_ref()
-                .1
-                .peer_certificates()
-                .and_then(|c| c.first())
-                .map(|c| fingerprint(c.as_ref())),
-            _ => None,
-        };
+        let cert = peer_fingerprint(ws.get_ref())?;
         let mut payload = json!({"forcePairing":false,"pairingType":"PROMPT","manifest":{"manifestVersion":1,"appVersion":"0.1.0","permissions":["CONTROL_AUDIO","CONTROL_POWER","READ_POWER_STATE","CONTROL_MOUSE_AND_KEYBOARD","CONTROL_INPUT_MEDIA_PLAYBACK"]}});
         if let Some(s) = &stored {
             payload["client-key"] = json!(s.key);
@@ -173,14 +149,14 @@ impl Session {
         loop {
             let next = tokio::time::timeout_at(deadline, ws.next())
                 .await
-                .map_err(|_| "Approve StreamGPT's connection request on the TV, then try again.")?
-                .ok_or("TV closed pairing.")?
-                .map_err(|_| "LG pairing disconnected.")?;
+                .map_err(|_| "LG_APPROVAL_TIMEOUT")?
+                .ok_or("LG_PAIRING_INTERRUPTED")?
+                .map_err(|_| "LG_PAIRING_INTERRUPTED")?;
             if let Message::Text(text) = next {
                 let value: Value =
                     serde_json::from_str(&text).map_err(|_| "Invalid LG response.")?;
                 if value["type"] == "error" {
-                    return Err("TV rejected pairing. Enable LG Connect Apps / Mobile TV On and approve the request.".into());
+                    return Err("LG_APPROVAL_REJECTED".into());
                 }
                 if value["type"] == "registered" {
                     let key = value["payload"]["client-key"]
@@ -313,6 +289,85 @@ pub fn validate_pointer(raw: &str, host: &str, secure: bool) -> Result<(), Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Public synthetic test identity; never loaded by production code.
+    const V1_CERT: &[u8] = include_bytes!("../tests/fixtures/lg-v1-cert.der");
+    const V1_KEY: &[u8] = include_bytes!("../tests/fixtures/lg-v1-test-key.der");
+    #[tokio::test]
+    async fn legacy_tls_certificate_supported_and_pin_checked_before_upgrade() {
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+        use tokio::io::AsyncReadExt;
+        // Explicit resolver serves the legacy certificate as-is. The default
+        // rustls certificate loader rejects v1 before a test server can start.
+        #[derive(Debug)]
+        struct Fixture(std::sync::Arc<rustls::sign::CertifiedKey>);
+        impl rustls::server::ResolvesServerCert for Fixture {
+            fn resolve(
+                &self,
+                _: rustls::server::ClientHello<'_>,
+            ) -> Option<std::sync::Arc<rustls::sign::CertifiedKey>> {
+                Some(self.0.clone())
+            }
+        }
+        let signing = rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(
+            PrivatePkcs8KeyDer::from(V1_KEY.to_vec()),
+        ))
+        .unwrap();
+        let cert =
+            rustls::sign::CertifiedKey::new(vec![CertificateDer::from(V1_CERT.to_vec())], signing);
+        let config = rustls::ServerConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_cert_resolver(std::sync::Arc::new(Fixture(std::sync::Arc::new(cert))));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config));
+            for accepted in [true, true, false] {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let mut tls = acceptor.accept(tcp).await.unwrap();
+                if accepted {
+                    let mut ws = tokio_tungstenite::accept_async(tls).await.unwrap();
+                    // The client closes without registration or control messages.
+                    assert!(matches!(
+                        ws.next().await,
+                        Some(Ok(Message::Close(_))) | None
+                    ));
+                } else {
+                    let mut byte = [0];
+                    let read = tokio::time::timeout(Duration::from_secs(2), tls.read(&mut byte))
+                        .await
+                        .unwrap();
+                    assert!(
+                        matches!(read, Ok(0) | Err(_)),
+                        "A changed pin must send no HTTP bytes"
+                    );
+                }
+            }
+        });
+        let url = format!("wss://{address}");
+        for pin in [None, Some(fingerprint(V1_CERT))] {
+            let mut ws = socket(&url, pin).await.unwrap();
+            assert_eq!(
+                peer_fingerprint(ws.get_ref()).unwrap(),
+                Some(fingerprint(V1_CERT))
+            );
+            let _ = ws.close(None).await;
+        }
+        assert_eq!(
+            socket(&url, Some("changed".into())).await.unwrap_err(),
+            "LG_CERTIFICATE_CHANGED"
+        );
+        server.await.unwrap();
+    }
+    #[test]
+    fn pin_cannot_be_downgraded_or_changed() {
+        assert!(verify_pin(Some("saved"), None).is_err());
+        assert!(verify_pin(Some("saved"), Some("other")).is_err());
+        assert!(verify_pin(Some("saved"), Some("saved")).is_ok());
+    }
     #[tokio::test]
     async fn request_correlates_replies_and_rejects_tv_errors() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

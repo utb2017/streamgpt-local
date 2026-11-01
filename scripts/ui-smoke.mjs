@@ -239,6 +239,8 @@ try {
                 ];
           }
           if (a.type === "connect_local") {
+            if (window.__fixture.failConnect)
+              throw Error(window.__fixture.failConnect);
             const lg = {
               ...structuredClone(base.devices[0]),
               id: "fixture-lg",
@@ -424,6 +426,22 @@ try {
       .length === 0,
     "Named choice still requires explicit Connect TV",
   );
+  check(
+    await dialog
+      .getByRole("heading", { name: "Be near your LG TV first" })
+      .isVisible(),
+    "LG instructions appear before Connect TV",
+  );
+  const guideBox = await dialog.locator(".candidate-confirm").boundingBox();
+  const sheetBox = await dialog.boundingBox();
+  check(
+    guideBox.y >= sheetBox.y && guideBox.y < sheetBox.y + 100,
+    "LG approval instructions scroll into view",
+  );
+  await page.screenshot({
+    path: join(qa, "lg-approval-guide.png"),
+    fullPage: true,
+  });
   await dialog.getByRole("button", { name: "Connect TV", exact: true }).click();
   await dialog
     .locator(".connection-outcome .verification")
@@ -475,6 +493,48 @@ try {
     !(await mutations()).some((c) => c.command === "controller"),
     "Linked buttons never fall back to this-computer commands",
   );
+  await nav("Your TVs");
+  await add("LG");
+  await dialog.getByRole("button", { name: /Find TVs/, exact: false }).click();
+  await dialog
+    .getByRole("button", { name: /Cloud LG fixture.*Choose/ })
+    .click();
+  await page.evaluate(() => {
+    window.__fixture.failConnect = "LG_APPROVAL_TIMEOUT";
+  });
+  const beforeFailure = (await mutations()).filter(
+    (c) => c.action?.type === "connect_local",
+  ).length;
+  await dialog.getByRole("button", { name: "Connect TV", exact: true }).click();
+  await dialog
+    .locator(".connection-progress")
+    .filter({ hasText: "did not finish approval in time" })
+    .waitFor();
+  check(
+    (await mutations()).filter((c) => c.action?.type === "connect_local")
+      .length ===
+      beforeFailure + 1,
+    "Failed pairing is not automatically retried",
+  );
+  check(
+    !(await dialog.locator(".connection-progress").textContent()).includes(
+      "Outcome unknown",
+    ),
+    "Connection failure explains the LG approval step",
+  );
+  const failureBox = await dialog.locator(".connection-progress").boundingBox();
+  check(
+    failureBox.y >= sheetBox.y && failureBox.y < sheetBox.y + 100,
+    "Approval failure scrolls into view",
+  );
+  await page.screenshot({
+    path: join(qa, "lg-approval-timeout.png"),
+    fullPage: true,
+  });
+  await page.evaluate(() => {
+    window.__fixture.failConnect = null;
+  });
+  await close();
   await nav("Your TVs");
   await page
     .getByRole("button", { name: "Choose Samsung fixture", exact: true })

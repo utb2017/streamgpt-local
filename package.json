@@ -1,7 +1,7 @@
 {
   "name": "streamgpt-local",
   "productName": "StreamGPT Local",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A Rust companion connecting LG and Roku TVs to StreamGPT in ChatGPT, with a desktop remote and local MCP.",
   "author": "Aaron Tomlinson",
   "license": "MIT",

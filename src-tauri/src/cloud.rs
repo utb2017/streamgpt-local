@@ -114,14 +114,7 @@ fn client() -> Result<reqwest::Client, String> {
         .map_err(|_| "Network unavailable.".into())
 }
 async fn read_json(response: reqwest::Response) -> Result<Value, String> {
-    if !response.status().is_success() {
-        return Err(if response.status() == 401 {
-            "Link this helper to StreamGPT again."
-        } else {
-            "StreamGPT could not complete this request. Check status before repeating a connection or command."
-        }
-        .into());
-    }
+    let status = response.status();
     let mut data = Vec::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -131,7 +124,16 @@ async fn read_json(response: reqwest::Response) -> Result<Value, String> {
         }
         data.extend(chunk);
     }
-    serde_json::from_slice(&data).map_err(|_| "Invalid server response.".into())
+    let parsed: Value = serde_json::from_slice(&data).map_err(|_| "Invalid server response.")?;
+    if !status.is_success() {
+        let code = parsed["error"].as_str().unwrap_or("");
+        return Err(if status == 401 {
+            "Link this helper to StreamGPT again."
+        } else if matches!(code, "LG_APPROVAL_TIMEOUT" | "LG_APPROVAL_REJECTED" | "LG_PAIRING_INTERRUPTED" | "LG_SECURE_CONNECTION_FAILED" | "LG_CERTIFICATE_CHANGED") {
+            code
+        } else { "StreamGPT could not complete this request. Check status before repeating a connection or command." }.into());
+    }
+    Ok(parsed)
 }
 fn approval_valid(p: &Pending) -> bool {
     let Ok(url) = url::Url::parse(&p.approval_url) else {
@@ -558,7 +560,23 @@ impl Cloud {
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
             .max_message_size(Some(65536))
             .max_frame_size(Some(65536));
-        let connection = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+        // Keep cloud trust separate from LG's local, explicitly approved certificates.
+        let roots = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|_| "Cloud TLS unavailable.")?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        let connection = tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            Some(config),
+            false,
+            Some(tokio_tungstenite::Connector::Rustls(Arc::new(tls))),
+        );
         let (mut socket, _) = tokio::select! {_ = changed.changed()=>return Ok(()), result=tokio::time::timeout(Duration::from_secs(12),connection)=>result.map_err(|_|"StreamGPT connection timed out.")?.map_err(|_|"Helper offline. Reconnecting to StreamGPT; no remote commands will be replayed.")?};
         let mut inventory = self.hello().await;
         socket
@@ -765,6 +783,25 @@ impl Cloud {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn connection_failure_codes_are_bounded_and_never_echo_provider_text() {
+        for (code, expected) in [
+            ("LG_APPROVAL_TIMEOUT", "LG_APPROVAL_TIMEOUT"),
+            ("LG_SECURE_CONNECTION_FAILED", "LG_SECURE_CONNECTION_FAILED"),
+            ("private pairing key and address", "StreamGPT could not complete this request. Check status before repeating a connection or command."),
+        ] {
+            let router = axum::Router::new().route("/", axum::routing::get(move || async move {
+                (axum::http::StatusCode::BAD_GATEWAY, axum::Json(json!({"error":code})))
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+            let response = client().unwrap().get(format!("http://{addr}/")).send().await.unwrap();
+            assert_eq!(read_json(response).await.unwrap_err(), expected);
+            server.abort();
+        }
+    }
+
     fn isolated_cloud() -> (tempfile::TempDir, Arc<Cloud>, Grant) {
         let dir = tempfile::tempdir().unwrap();
         let controller = Arc::new(Mutex::new(crate::controller::Controller {
