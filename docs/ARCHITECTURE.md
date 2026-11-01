@@ -14,7 +14,7 @@ flowchart LR
 
 Tauri hosts the React interface in the system webview. One explicit Rust command accepts a strictly typed operation. A capability grants this command only to the local main window. There is no arbitrary shell execution or frontend HTTP client.
 
-The application owns a random-port HTTP listener on `127.0.0.1`, with a fresh 256-bit bearer token each launch. It rejects browser Origin headers, unexpected Host headers and incorrect tokens. The token and port are encrypted in the current user's application data. The `--mcp` subprocess retrieves them through the OS credential store; it does not receive a token in the command line or generated configuration. The local endpoint allows only snapshot, status and button requests.
+The application owns a random-port HTTP listener on `127.0.0.1`, with a fresh 256-bit bearer token each launch. It rejects browser Origin headers, unexpected Host headers and incorrect tokens. The token and port are encrypted in the current user's application data. The `--mcp` subprocess retrieves them through the OS credential store; it does not receive a token in the command line or generated configuration. The local endpoint allows only snapshot, discovery, status and button requests. Device enrollment, pairing and removal remain in the desktop UI.
 
 ## Storage
 
@@ -25,6 +25,8 @@ All controller work uses one asynchronous mutex. Button requests require a UUID.
 ## Protocols
 
 Discovery sends SSDP searches on private IPv4 network interfaces and listens for a short bounded interval. It uses the response's source address, not an arbitrary LOCATION URL. Discovery is advisory; users choose which addresses to save and approve.
+
+Opening Add a device starts discovery. The UI presents names first, with manual address entry behind Connection help. Discovery reads identity from at most 16 Roku responders using the fixed ECP endpoint, with a 1.5-second timeout for concurrent enrichment. Device names are untrusted display data. The `discover_tvs` MCP tool lets an existing AI guide this same workflow; there is no separate model or paid inference service inside the desktop app.
 
 Roku uses a fixed port and allowlisted ECP paths. HTTP redirects, proxies, oversized responses and XML entity declarations are rejected. Play and pause both map to Roku's playback toggle. Volume and power support vary between Roku TVs and streaming players.
 

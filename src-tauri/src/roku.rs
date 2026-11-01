@@ -62,6 +62,8 @@ struct Info {
     model: String,
     #[serde(rename = "power-mode", default)]
     power: String,
+    #[serde(rename = "user-device-name", default)]
+    name: String,
 }
 pub fn parse_info(xml: &str) -> Result<Value, String> {
     if xml.contains("<!DOCTYPE") || xml.contains("<!ENTITY") {
@@ -72,7 +74,8 @@ pub fn parse_info(xml: &str) -> Result<Value, String> {
     if info.model.len() > 100 {
         return Err("Invalid device model.".into());
     }
-    Ok(json!({"model":info.model,"power":info.power}))
+    let name = info.name.chars().take(60).collect::<String>();
+    Ok(json!({"model":info.model,"power":info.power,"name":name}))
 }
 pub async fn inspect(host: &str) -> Result<Value, String> {
     parse_info(&request(host, "query/device-info", false).await?)
@@ -93,5 +96,15 @@ mod tests {
     #[test]
     fn play_pause_is_a_toggle() {
         assert_eq!(key(&Button::Play), key(&Button::Pause));
+    }
+    #[test]
+    fn reads_optional_friendly_name_without_exposing_other_device_fields() {
+        let info = parse_info("<device-info><model-name>Roku Express</model-name><user-device-name>Living room</user-device-name><serial-number>private</serial-number></device-info>").unwrap();
+        assert_eq!(info["name"], "Living room");
+        assert!(info.get("serial-number").is_none());
+        assert_eq!(
+            parse_info("<device-info><model-name>Roku</model-name></device-info>").unwrap()["name"],
+            ""
+        );
     }
 }

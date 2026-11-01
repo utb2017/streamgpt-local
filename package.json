@@ -1,7 +1,7 @@
 {
   "name": "streamgpt-local",
   "productName": "StreamGPT Local",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A monochrome desktop remote and local MCP bridge for LG webOS and Roku.",
   "author": "Aaron Tomlinson",
   "license": "MIT",

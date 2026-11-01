@@ -1,5 +1,13 @@
 # Release validation
 
+## 0.1.2 discovery-first setup
+
+Production UI build, 12 Rust tests, Clippy with warnings denied, browser fixture flows and independent MCP checks passed. Browser checks cover automatic discovery, selecting a result without typing an address, manual fallback, empty results, and the connection gate before remote buttons are enabled.
+
+Live native verification discovered a Roku Express running Roku OS 16.0.4 over Wi-Fi from a wired Windows PC. The native wizard displayed its friendly name with the IP form hidden. User-authorized enrollment and read-only status checks passed through the running app and the independent MCP client. No remote button commands were sent. Device addresses, names and screenshots from this private network are not published.
+
+The desktop MCP now exposes discovery to an existing AI client. The hosted server/phone relay remains unimplemented; the app does not contain a separate language model.
+
 ## 0.1.1 setup clarification
 
 The setup dialog now distinguishes the Roku's on-TV settings from the PC app, explains Ethernet/Wi-Fi connectivity, and states the separate Add device and Connect this TV steps. Roku connection progress no longer asks the user to wait for an LG approval prompt. The production UI build and the browser fixture flow passed, including manual Roku enrollment with no command dispatch.

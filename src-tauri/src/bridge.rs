@@ -48,7 +48,7 @@ async fn rpc(
     }
     if !matches!(
         input,
-        Input::Snapshot {} | Input::Inspect { .. } | Input::Press { .. }
+        Input::Snapshot {} | Input::Discover {} | Input::Inspect { .. } | Input::Press { .. }
     ) {
         return (
             StatusCode::FORBIDDEN,

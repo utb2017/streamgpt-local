@@ -21,7 +21,9 @@ try {
         window.__testCalls.push(input);
         if (input.op === "snapshot") return structuredClone(data);
         if (input.op === "discover")
-          return [{ host: "192.168.1.10", brand: "lg", name: "Fixture LG" }];
+          return window.__noDevices
+            ? []
+            : [{ host: "192.168.1.10", brand: "lg", name: "Fixture LG" }];
         if (input.op === "add") {
           data.devices.push({
             id: "a58a53da-79bd-43c4-9334-56be70d4c5ad",
@@ -54,9 +56,8 @@ try {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("http://127.0.0.1:5198/");
   await page.getByRole("button", { name: "Add a device", exact: true }).click();
-  await page.getByRole("button", { name: "Find nearby TVs" }).click();
+  assert.equal(await page.getByLabel("Local IP address").isVisible(), false);
   await page.getByRole("button", { name: /Fixture LG/ }).click();
-  await page.getByRole("button", { name: "Add device", exact: true }).click();
   assert.equal(
     await page
       .getByRole("button", { name: "Volume up", exact: true })
@@ -77,8 +78,11 @@ try {
   // The manual Roku path must not inherit LG approval instructions.
   await page.reload();
   await page.getByRole("button", { name: "Add a device", exact: true }).click();
+  await page
+    .getByText("Can’t find it? Connection help", { exact: true })
+    .click();
   await page.getByLabel("TV type").selectOption("roku");
-  await page.getByText(/On your Roku, open Settings/).waitFor();
+  await page.getByText(/use your Roku remote to open Settings/).waitFor();
   await page.getByLabel("Local IP address").fill("192.168.1.20");
   await page.getByRole("button", { name: "Add device", exact: true }).click();
   await page.getByRole("button", { name: "Connect this TV" }).click();
@@ -90,6 +94,21 @@ try {
   const rokuCalls = await page.evaluate(() => window.__testCalls);
   assert.equal(rokuCalls.find((c) => c.op === "add").brand, "roku");
   assert.equal(rokuCalls.filter((c) => c.op === "press").length, 0);
+  await page.reload();
+  await page.evaluate(() => {
+    window.__noDevices = true;
+  });
+  await page.getByRole("button", { name: "Add a device", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByText(/No TVs answered yet/)
+    .waitFor();
+  assert.equal(await page.getByLabel("Local IP address").isVisible(), false);
+  const emptyCalls = await page.evaluate(() => window.__testCalls);
+  assert.deepEqual(
+    emptyCalls.map((c) => c.op),
+    ["snapshot", "discover"],
+  );
   assert.deepEqual(errors, []);
   console.log(
     "UI: discovery, add, approval gate, one button request and MCP configuration passed with fixtures.",

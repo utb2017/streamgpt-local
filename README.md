@@ -13,16 +13,16 @@ StreamGPT Local connects an approved desktop AI client or its own visual remote 
 - **Find your screens.** SSDP discovery on private IPv4 interfaces, with manual IP entry when discovery is blocked.
 - **Approve access.** LG pairing happens on the TV. Roku requires network control enabled in its settings.
 - **Keep control local.** Pairing credentials and the command journal are encrypted using a key held by the OS credential store.
-- **Connect your AI.** Built-in stdio MCP exposes three focused tools. Enrollment and removal stay in the desktop app.
+- **Connect your AI.** Built-in stdio MCP exposes four focused tools, including discovery so your AI can find TVs without asking for an IP address. Enrollment and removal stay in the desktop app.
 - **Know what happened.** Durable request IDs prevent duplicate delivery. Missing acknowledgements remain uncertain; commands are never automatically retried.
 
-**Early preview:** LG/Roku hardware compatibility is not yet verified for this release. Protocol and security checks use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
+**Early preview:** discovery, enrollment and status were verified on a Roku Express running OS 16.0.4. Real remote-button effects and LG hardware compatibility remain untested. Protocol and security checks also use fixtures. The screenshot is a labeled interactive preview, not evidence of connected hardware. Roku's current ECP documentation restricts third-party platforms; availability of this source does not grant permission to distribute a commercial Roku remote. See [compatibility](docs/COMPATIBILITY.md).
 
 ## Get started
 
 1. Download the Windows installer from [Releases](https://github.com/utb2017/streamgpt-local/releases/latest). This preview is not code-signed; Windows may show an unknown-publisher warning. Check the published SHA-256 before installing.
 2. Open StreamGPT Local. Keep the computer and TV on the same home network. Ethernet and Wi-Fi both work when the router permits them to communicate.
-3. Choose **Add a device**. Click **Find nearby TVs** and select a result, or choose **TV type** (LG webOS or Roku) and enter **Local IP address**. On Roku, find the IP under **Settings → Network → About**. Click **Add device** to save it.
+3. Choose **Add a device**. The app automatically searches; select your TV by name to save it. If nothing answers, use **Search again** or expand **Can’t find it? Connection help** for instructions and optional manual entry. An IP address is only a fallback.
 4. Back on the remote screen, click **Connect this TV**. On LG, approve the prompt on the television. Roku checks the network connection without an LG-style approval prompt; enable **Control by mobile apps** in Roku settings as required by the device's OS.
 5. Use the remote, or open **Connect AI** and copy the generated MCP configuration into a desktop client that supports local stdio servers.
 
@@ -34,11 +34,12 @@ The executable supports `--mcp`. The app generates the correct executable path f
 
 | Tool | Purpose |
 | --- | --- |
+| `discover_tvs` | Find nearby LG/Roku devices and names without pairing or sending remote commands |
 | `list_tvs` | List devices explicitly approved in the desktop app |
 | `get_tv_status` | Read a paired TV's status |
 | `press_tv_button` | Send one allowlisted button, with a required UUID request ID |
 
-The MCP child process connects to an authenticated loopback endpoint owned by the running desktop app. It cannot discover, enroll, pair or forget devices. Pairing keys are never returned in tool output.
+The MCP child process connects to an authenticated loopback endpoint owned by the running desktop app. It can discover devices, but cannot enroll, pair or forget them. Pairing keys are never returned in tool output. AI clients can use discovery to guide setup; this desktop app does not run a separate language model.
 
 **ChatGPT on your phone:** this release is a local controller and desktop MCP companion. It does not connect to the hosted StreamGPT phone app. That requires a separate authenticated outbound cloud relay. The working Samsung/SmartThings cloud integration is a different project and remains untouched.
 

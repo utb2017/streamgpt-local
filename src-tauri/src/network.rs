@@ -38,7 +38,25 @@ pub async fn discover() -> Result<Value, String> {
     while let Some(Ok(Ok(result))) = jobs.join_next().await {
         all.extend(result);
     }
-    Ok(json!(all.into_values().take(64).collect::<Vec<_>>()))
+    let mut candidates = all.into_values().take(64).collect::<Vec<_>>();
+    candidates.sort_by_key(|c| c["host"].as_str().unwrap_or_default().to_owned());
+    // Read identity only from discovered peers at the fixed Roku port/path.
+    // Bound enrichment so a nonresponsive advertiser cannot stall the wizard.
+    let enrichment = candidates.iter_mut().take(16).map(|candidate| async move {
+        if candidate["brand"] == "roku" {
+            let host = candidate["host"].as_str().unwrap_or_default().to_owned();
+            if let Ok(Ok(info)) =
+                tokio::time::timeout(Duration::from_millis(1500), crate::roku::inspect(&host)).await
+            {
+                candidate["model"] = info["model"].clone();
+                if let Some(name) = info["name"].as_str().filter(|s| !s.trim().is_empty()) {
+                    candidate["name"] = json!(name);
+                }
+            }
+        }
+    });
+    futures_util::future::join_all(enrichment).await;
+    Ok(json!(candidates))
 }
 #[cfg(test)]
 mod tests {

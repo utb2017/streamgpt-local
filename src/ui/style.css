@@ -1027,9 +1027,20 @@ input::placeholder {
 .form-help {
   display: block;
   font-size: 10px;
-  color: #757575;
+  color: #aaa;
   line-height: 1.8;
   margin: 16px 0 20px;
+}
+.manual-setup {
+  margin-top: 22px;
+  border-top: 1px solid #393939;
+  padding-top: 18px;
+}
+.manual-setup summary {
+  cursor: pointer;
+  color: #ccc;
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 .candidate {
   display: flex;

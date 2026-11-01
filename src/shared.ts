@@ -31,6 +31,7 @@ export interface Candidate {
   host: string;
   brand: Brand;
   name: string;
+  model?: string;
 }
 export interface Receipt {
   id: string;

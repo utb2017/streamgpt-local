@@ -36,7 +36,7 @@ import type { Snapshot, Device, Input, Candidate, Button } from "../shared";
 import "./style.css";
 const demo = new URLSearchParams(location.search).get("demo") === "1";
 const sample: Snapshot = {
-  version: "0.1.1",
+  version: "0.1.2",
   cloud: "not_connected",
   mcpConfig: JSON.stringify(
     {
@@ -70,7 +70,7 @@ const sample: Snapshot = {
   ],
 };
 const blank: Snapshot = {
-  version: "0.1.1",
+  version: "0.1.2",
   cloud: "not_connected",
   mcpConfig: "",
   receipts: [],
@@ -83,6 +83,7 @@ function App() {
     [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(""),
     [modal, setModal] = useState(false),
+    [searched, setSearched] = useState(false),
     [candidates, setCandidates] = useState<Candidate[]>([]),
     [brand, setBrand] = useState<"lg" | "roku">("lg"),
     [host, setHost] = useState(""),
@@ -109,10 +110,11 @@ function App() {
       else if (value?.snapshot) setData(value.snapshot);
       if (input.op === "discover") {
         setCandidates(value);
+        setSearched(true);
         setNotice(
           value.length
-            ? "Choose a device below."
-            : "No broadcast replies. You can still add the TV by its IP address.",
+            ? "Choose your TV below. We found its network address for you."
+            : "No TVs answered yet. Turn on your TV and check it uses the same home router as this PC, then search again.",
         );
       }
       if (input.op === "add") {
@@ -138,6 +140,13 @@ function App() {
   useEffect(() => {
     if (!demo) void call({ op: "snapshot" });
   }, []);
+  function startSetup() {
+    if (busy) return;
+    setModal(true);
+    setCandidates([]);
+    setSearched(false);
+    void call({ op: "discover" });
+  }
   const press = (button: Button) => {
     if (device)
       void call({
@@ -261,10 +270,8 @@ function App() {
             {tab === "devices" && (
               <button
                 className="primary"
-                onClick={() => {
-                  setModal(true);
-                  setNotice("");
-                }}
+                disabled={!!busy}
+                onClick={startSetup}
               >
                 <Plus size={17} /> Add a device
               </button>
@@ -340,14 +347,19 @@ function App() {
                         <p>Add an LG webOS TV or Roku on your home network.</p>
                         <button
                           className="secondary"
-                          onClick={() => setModal(true)}
+                          disabled={!!busy}
+                          onClick={startSetup}
                         >
                           Find my TV <ArrowRight size={15} />
                         </button>
                       </div>
                     )}
                   </div>
-                  <button className="add-dashed" onClick={() => setModal(true)}>
+                  <button
+                    className="add-dashed"
+                    disabled={!!busy}
+                    onClick={startSetup}
+                  >
                     <Plus size={17} /> Make room for another screen
                   </button>
                   <div className="network-note">
@@ -550,7 +562,12 @@ function App() {
                   that client.
                 </p>
                 <div className="tool-list">
-                  {["list_tvs", "get_tv_status", "press_tv_button"].map((t) => (
+                  {[
+                    "discover_tvs",
+                    "list_tvs",
+                    "get_tv_status",
+                    "press_tv_button",
+                  ].map((t) => (
                     <code key={t}>
                       {t}
                       <ArrowUpRight size={14} />
@@ -558,8 +575,8 @@ function App() {
                   ))}
                 </div>
                 <p className="muted">
-                  Agents can use approved TVs. Adding, pairing and removing
-                  devices stays in this app.
+                  Your AI can find nearby TVs and use approved TVs. Adding,
+                  pairing and removing devices stays in this app.
                 </p>
               </section>
               <section className="info-card">
@@ -706,10 +723,10 @@ function App() {
               <X size={20} />
             </button>
             <div className="eyebrow">A LITTLE CLOSER</div>
-            <h2 id="add-title">Add a device</h2>
+            <h2 id="add-title">Let’s find your TV.</h2>
             <p>
-              Turn on your TV and connect it to the same network as this
-              computer.
+              Turn on your TV. We’ll look for it on your home network—no network
+              address to type.
             </p>
             <p>
               Your PC can stay on Ethernet while your TV uses Wi-Fi on the same
@@ -727,79 +744,100 @@ function App() {
               )}{" "}
               {busy === "discover"
                 ? "Listening on your network…"
-                : "Find nearby TVs"}
+                : "Search again"}
             </button>
             {candidates.map((c) => (
               <button
                 className="candidate"
                 key={c.host}
+                disabled={!!busy}
                 onClick={() => {
-                  setHost(c.host);
-                  setBrand(c.brand);
-                  setName(c.name);
+                  void call({
+                    op: "add",
+                    host: c.host,
+                    brand: c.brand,
+                    name: c.name,
+                  });
                 }}
               >
                 <Monitor size={18} />
                 {c.name}
-                <small>{c.host}</small>
+                <small>
+                  {c.model ?? (c.brand === "roku" ? "Roku" : "LG webOS")}
+                </small>
                 <Plus size={16} />
               </button>
             ))}
-            <div className="divider">OR ADD BY IP ADDRESS</div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void call({
-                  op: "add",
-                  brand,
-                  host: host.trim(),
-                  name: name.trim() || (brand === "lg" ? "LG TV" : "Roku"),
-                });
-              }}
-            >
-              <label>
-                TV type
-                <select
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value as any)}
-                >
-                  <option value="lg">LG webOS</option>
-                  <option value="roku">Roku · experimental</option>
-                </select>
-              </label>
-              <label>
-                Local IP address
-                <input
-                  autoFocus
-                  placeholder="192.168.1.40"
-                  value={host}
-                  onChange={(e) => setHost(e.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Make it yours
-                <input
-                  placeholder="Living room"
-                  maxLength={60}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
-              <small className="form-help">
-                {brand === "roku"
-                  ? "On your Roku, open Settings → Network → About to find its IP address. Network control must be enabled in the Roku settings (Control by mobile apps). Roku does not use the LG on-screen approval prompt."
-                  : "Find the IP in your LG TV’s Network settings. When you connect, approve the request on your LG TV."}
-              </small>
-              <p className="form-help">
-                Choose your TV type and enter its IP, or select a result from
-                Find nearby TVs. Click Add device here, then Connect this TV on
-                the remote screen.
+            {searched && candidates.length > 0 && (
+              <p>
+                Choose yours to add it, then click Connect this TV on the remote
+                screen.
               </p>
-              <button className="primary wide" disabled={!!busy}>
-                Add device <ArrowRight size={17} />
-              </button>
-            </form>
+            )}
+            <details className="manual-setup">
+              <summary>Can’t find it? Connection help</summary>
+              <p>
+                Keep the TV on. Use the same home router as this PC, not guest
+                Wi-Fi. Click Search again after checking.
+              </p>
+              <p>
+                If discovery still cannot find it, you can enter its IP address
+                below. That is the TV’s address on your home network, like
+                192.168.1.40—not your email, password or an address to invent.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void call({
+                    op: "add",
+                    brand,
+                    host: host.trim(),
+                    name: name.trim() || (brand === "lg" ? "LG TV" : "Roku"),
+                  });
+                }}
+              >
+                <label>
+                  TV type
+                  <select
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value as any)}
+                  >
+                    <option value="lg">LG webOS</option>
+                    <option value="roku">Roku · experimental</option>
+                  </select>
+                </label>
+                <label>
+                  Local IP address
+                  <input
+                    placeholder="192.168.1.40"
+                    value={host}
+                    onChange={(e) => setHost(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  Make it yours
+                  <input
+                    placeholder="Living room"
+                    maxLength={60}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </label>
+                <small className="form-help">
+                  {brand === "roku"
+                    ? "On the TV screen, use your Roku remote to open Settings → Network → About. Copy the number labeled IP address here. These are the Roku’s settings, not this PC app’s Settings & about page. Roku network control must be enabled (Control by mobile apps); no LG-style approval prompt is expected."
+                    : "On the TV screen, use your LG remote to open its Network settings and find the IP address. These are the TV’s settings, not this PC app’s settings. When you connect, approve the request on your LG TV."}
+                </small>
+                <p className="form-help">
+                  Choose your TV type and enter its IP. Click Add device here,
+                  then Connect this TV on the remote screen.
+                </p>
+                <button className="primary wide" disabled={!!busy}>
+                  Add device <ArrowRight size={17} />
+                </button>
+              </form>
+            </details>
             {notice && (
               <p className="modal-notice" role="status">
                 {notice}

@@ -17,6 +17,7 @@ try {
   await client.connect(transport);
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((t) => t.name).sort(), [
+    "discover_tvs",
     "get_tv_status",
     "list_tvs",
     "press_tv_button",
@@ -33,7 +34,7 @@ try {
   const unknown = await client.callTool({ name: "pair_tv", arguments: {} });
   assert.equal(unknown.isError, true);
   console.log(
-    "Native MCP: initialized; three tools; injection and unknown tool rejected. No device calls.",
+    "Native MCP: initialized; four tools; injection and unknown tool rejected. No device calls.",
   );
 } finally {
   await client.close();

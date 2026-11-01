@@ -3,7 +3,7 @@
 | Target | Implemented path | Hardware validation |
 | --- | --- | --- |
 | LG webOS | SSAP pairing, volume, mute, navigation, media buttons, power off | Pending |
-| Roku | ECP identification and allowlisted remote keys | Pending; experimental vendor-policy status |
+| Roku | ECP identification and allowlisted remote keys | Roku Express / OS 16.0.4: discovery, enrollment and status passed; remote button effects untested; experimental vendor-policy status |
 | Windows x64 | Tauri/WebView2 installer | Build and application checks recorded in release notes |
 | macOS / Linux | Tauri source, OS keyring code paths | Not packaged or validated in this release |
 | Desktop MCP | stdio initialization, list tools, status and commands | Protocol smoke test |
